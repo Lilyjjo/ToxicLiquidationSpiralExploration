@@ -11,7 +11,9 @@ This was [first observed](https://arxiv.org/pdf/2212.07306.pdf#:~:text=3%20Toxic
 Currently this repo contains an unmodified Compound v2 fork setup to mimic the behavior of the 2023 0VIX attack. It's a WIP. The file `test/ToxicLiquidationSpiral.t.sol` contains the setup and can be run with `forge test -vv`.
 
 
-The Compound Fork currently runs two tests:
+The suit currently runs two tests on the Compound fork:
 - A short demonstrating that the setup is working 
 - A toxic liquidation spiral attack similar to the 0VIX attack
+
+
 The testing suit is setup to allow more tests to be added. 
