@@ -26,6 +26,27 @@ Goal:
 
 */
 
+struct BaseJumpRateModelV2Params {
+    uint baseRatePerYear;
+    uint multiplierPerYear;
+    uint jumpMultiplierPerYear;
+    uint kink;
+}
+
+struct ComptrollerParams {
+    uint initialExchangeRateMantissa;
+    uint8 cTokenDecimals;
+    uint USDCCollateralFactor;
+    uint borrowTokenCollateralFactor;
+    uint liquidationIncentive;
+    uint closeFactor;
+}
+
+/**
+ * @title Instrumented Compound v2 for Exploring Toxic Liquidity Spirals
+ * @author Lilyjjo
+ * @notice The Compound Pool is only setup to handle 2 assets
+ */
 contract ToxicLiquidityExploration is Test {
     SimplePriceOracle public oracle;
     Comptroller public comptroller; // https://etherscan.io/address/0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B
@@ -62,29 +83,50 @@ contract ToxicLiquidityExploration is Test {
     MockERC20 usdc;
     MockERC20 borrowToken;
 
+    /**
+     * @notice Sets needed comptroller variables
+     * @dev Prices for tokens in Oracle need to be set beforehand
+     */
     function setUpComptroller() public {
         assert(oracle.getUnderlyingPrice(cUSDC) != 0);
         assert(oracle.getUnderlyingPrice(cBorrowedToken) != 0);
 
         vm.startPrank(admin);
-        comptroller._setCloseFactor(closeFactor);
-        comptroller._setCollateralFactor(cUSDC, uscdCollateralFactor);
-        comptroller._setCollateralFactor(
+        uint success;
+        success = comptroller._setCloseFactor(closeFactor);
+        assert(success == 0);
+        success = comptroller._setCollateralFactor(cUSDC, uscdCollateralFactor);
+        assert(success == 0);
+        success = comptroller._setCollateralFactor(
             cBorrowedToken,
             borrowTokenCollateralFactor
         );
-        comptroller._setLiquidationIncentive(liquidationIncentive);
+        assert(success == 0);
+        success = comptroller._setLiquidationIncentive(liquidationIncentive);
+        assert(success == 0);
         vm.stopPrank();
     }
 
+    /**
+     * @notice Adds user to both borrow and collateral token markets
+     * @param user The address of user
+     */
     function addToMarkets(address user) public {
         vm.prank(user);
         address[] memory cTokens = new address[](2);
         cTokens[0] = address(cUSDC);
         cTokens[1] = address(cBorrowedToken);
-        comptroller.enterMarkets(cTokens);
+        uint[] memory success = comptroller.enterMarkets(cTokens);
+        assert(success[0] == 0);
+        assert(success[1] == 0);
     }
 
+    /**
+     * @notice Mints ERC20 for user
+     * @param user The address of user
+     * @param coin The target ERC20
+     * @param amount The amount to mint
+     */
     function giveUserFunds(
         address user,
         MockERC20 coin,
@@ -94,6 +136,13 @@ contract ToxicLiquidityExploration is Test {
         coin.mint(user, amount);
     }
 
+    /**
+     * @notice Mints ERC20 and supplies it as collateral in associated CToken contract for user
+     * @param user The user to mint and supply for\
+     * @param coin The underlying ERC20
+     * @param cToken The associated CToken for the ERC20
+     * @param amount The amound of token to mint/supply
+     */
     function mintFundsAndCollateral(
         address user,
         MockERC20 coin,
@@ -104,9 +153,17 @@ contract ToxicLiquidityExploration is Test {
         vm.prank(user);
         coin.approve(address(cToken), amount);
         vm.prank(user);
-        cToken.mint(amount);
+        uint success = cToken.mint(amount);
+        assert(success == 0);
     }
 
+    /**
+     * @notice Borrows cToken from the Compound setup for user
+     * @param user The user who is borrowing
+     * @param coin Unused
+     * @param cToken The target token to borrow
+     * @param amount How much token to borrow
+     */
     function borrow(
         address user,
         MockERC20 coin,
@@ -114,9 +171,18 @@ contract ToxicLiquidityExploration is Test {
         uint256 amount
     ) public {
         vm.prank(user);
-        cToken.borrow(amount);
+        uint success = cToken.borrow(amount);
+        assert(success == 0);
     }
 
+    /**
+     * @notice Swaps value of one ERC20 for the same value of another ERC20
+     * @dev Make sure you set the asset prices in the oracles
+     * @param user The user holding the tokens
+     * @param inToken The token to be swapped in
+     * @param outToken The token to be swapped out
+     * @param amountIn How many inTokens to be swapped
+     */
     function swapAssets(
         address user,
         MockERC20 inToken,
@@ -135,6 +201,13 @@ contract ToxicLiquidityExploration is Test {
         vm.stopPrank();
     }
 
+    /**
+     * @notice Repays a user's borrow
+     * @param user The user who is repaying
+     * @param coin The ERC20 token being repaid
+     * @param cToken The associated cToken to the ERC20
+     * @param amount How much of borrow to repay
+     */
     function repayBorrow(
         address user,
         MockERC20 coin,
@@ -143,19 +216,36 @@ contract ToxicLiquidityExploration is Test {
     ) public {
         vm.startPrank(user);
         coin.approve(address(cToken), amount);
-        cToken.repayBorrow(amount);
+        uint success = cToken.repayBorrow(amount);
+        assert(success == 0);
         vm.stopPrank();
     }
 
+    /**
+     * @notice Removes a user's collateral from Compound Pool
+     * @param user The user's account
+     * @param cToken The cToken pool of the asset to reclaim
+     * @param amount How much of asset to remove
+     */
     function removeCollateral(
         address user,
         CErc20Immutable cToken,
         uint256 amount
     ) public {
         vm.prank(user);
-        cToken.redeemUnderlying(amount);
+        uint success = cToken.redeemUnderlying(amount);
+        assert(success == 0);
     }
 
+    /**
+     * @notice Has liquidator liquidate target (pays borrow token to receive cToken of collateral)
+     * @param liquidator Account performing liquidation, needs to hold borrowToken
+     * @param target Account being liquidated, needs to be liquidatable
+     * @param cTokenCollateral The cToken that the liquidator will receive for performing the liquidation
+     * @param cTokenBorrow The cToken that the target has borrowed
+     * @param borrowCoin The ERC20 of the cTokenBorrow
+     * @param repayAmount How much of borrowCoin to use in liquidation
+     */
     function liquidate(
         address liquidator,
         address target,
@@ -164,23 +254,32 @@ contract ToxicLiquidityExploration is Test {
         MockERC20 borrowCoin,
         uint256 repayAmount
     ) public {
-        // liquidateBorrow(address borrower, uint repayAmount, CTokenInterface cTokenCollateral)
-        // paying borrowToken to get usdc
+        // paying borrowToken to get collateralToken
         vm.startPrank(liquidator);
         borrowCoin.approve(address(cTokenBorrow), repayAmount);
-        cTokenBorrow.liquidateBorrow(target, repayAmount, cTokenCollateral);
+        uint success = cTokenBorrow.liquidateBorrow(
+            target,
+            repayAmount,
+            cTokenCollateral
+        );
+        assert(success == 0);
         vm.stopPrank();
     }
 
+    /**
+     *  @notice Returns the loan-to-value ratio for user.
+     *  @param user address of user to get LTV for
+     *  @return LTV scaled to 100_00 == 100%
+     */
     function getLTV(address user) public returns (uint256 LTV) {
-        uint256 cBorrowedTokenBorrowBalance = cBorrowedToken
-            .borrowBalanceCurrent(user);
         uint256 cUSDCBalance = cUSDC.balanceOfUnderlying(user);
+        uint256 cUSDCBorrowedBalance = cUSDC.borrowBalanceCurrent(user);
 
-        uint256 cUSDCBorrowBalance = cUSDC.borrowBalanceCurrent(user);
         uint256 cBorrowedTokenBalance = cBorrowedToken.balanceOfUnderlying(
             user
         );
+        uint256 cBorrowedTokenBorrowedBalance = cBorrowedToken
+            .borrowBalanceCurrent(user);
 
         uint256 denominator = (cUSDCBalance *
             oracle.getUnderlyingPrice(cUSDC) *
@@ -190,9 +289,9 @@ contract ToxicLiquidityExploration is Test {
                 oracle.getUnderlyingPrice(cBorrowedToken) *
                 borrowTokenCollateralFactor) /
             1 ether;
-        uint256 numerator = cBorrowedTokenBorrowBalance *
+        uint256 numerator = cBorrowedTokenBorrowedBalance *
             oracle.getUnderlyingPrice(cBorrowedToken);
-        numerator += cUSDCBorrowBalance * oracle.getUnderlyingPrice(cUSDC);
+        numerator += cUSDCBorrowedBalance * oracle.getUnderlyingPrice(cUSDC);
         if (denominator != 0) {
             LTV = (numerator * 10000) / denominator;
         } else {
@@ -200,12 +299,11 @@ contract ToxicLiquidityExploration is Test {
         }
     }
 
-    /*  
-      Creates:
-        - Users to interact with protocol
-        - Compound setup (Comptroller with interest rate model and CTokens)
-        - Underlying ERC20s for CTokens
-    */
+    /**
+     * @notice Sets up instrumentation. Includes: creating test accounts, creating
+     * ERC20s/cTokens/Comptroller/Oralce contracts, and glues everything together
+     * @dev Currently uses global variables for initialization // TODO: fix this
+     */
     function setUp() public {
         oracle = new SimplePriceOracle();
 
@@ -268,6 +366,10 @@ contract ToxicLiquidityExploration is Test {
         addToMarkets(whale);
     }
 
+    /**
+     * @notice Performs simple short on Compound setup to see that everything
+     * is working as intended.
+     */
     function testSimpleShort() public {
         // set up protocol
         uscdCollateralFactor = 855000000000000000;
@@ -279,18 +381,22 @@ contract ToxicLiquidityExploration is Test {
         oracle.setUnderlyingPrice(cUSDC, 1 ether);
         oracle.setUnderlyingPrice(cBorrowedToken, 1 ether);
 
+        // set comptroller variables
         setUpComptroller();
+
         // set up whale reserves
         mintFundsAndCollateral(whale, usdc, cUSDC, 10_000);
         mintFundsAndCollateral(whale, borrowToken, cBorrowedToken, 10_000);
 
-        // start test: userA wants to short
+        // start test: userA wants to short (aka borrow asset then swap it for
+        // the collateral because they think the price of the borrow will drop)
         uint256 userAStartUSDC = 1000;
         mintFundsAndCollateral(userA, usdc, cUSDC, userAStartUSDC);
         borrow(userA, borrowToken, cBorrowedToken, 500);
         swapAssets(userA, borrowToken, usdc, 500);
 
         // price does drop!
+        // drop by 50% to make math easy
         oracle.setUnderlyingPrice(cBorrowedToken, 0.5 ether);
 
         // repay loan
@@ -469,10 +575,10 @@ contract ToxicLiquidityExploration is Test {
             user
         );
         uint256 borrowTokenBalance = borrowToken.balanceOf(user);
-        uint256 cBorrowedTokenBorrowBalance = cBorrowedToken
+        uint256 cBorrowedTokenBorrowedBalance = cBorrowedToken
             .borrowBalanceCurrent(user);
 
-        uint256 denominator = (cBorrowedTokenBorrowBalance *
+        uint256 denominator = (cBorrowedTokenBorrowedBalance *
             oracle.getUnderlyingPrice(cUSDC) *
             uscdCollateralFactor) / 1 ether;
         uint256 numerator = cBorrowedTokenBalance *
@@ -490,7 +596,7 @@ contract ToxicLiquidityExploration is Test {
         console.log("  CRV  : ", borrowTokenBalance);
         console.log("  cUSDC: ", cUSDCBalance);
         console.log("  cBorrowedToken : ", cBorrowedTokenBalance);
-        console.log("  borrowed CRV     : ", cBorrowedTokenBorrowBalance);
+        console.log("  borrowed CRV     : ", cBorrowedTokenBorrowedBalance);
         console.log("  borrow value     : ", numerator / 1 ether);
         console.log("  collateral value : ", denominator / 1 ether);
         console.log("  liquidity: ", liquidity);
