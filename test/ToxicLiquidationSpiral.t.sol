@@ -14,18 +14,6 @@ import "../src/SimplePriceOracle.sol";
 import "../src/MockTokens/MockERC20.sol";
 import "../src/ErrorReporter.sol";
 
-/*
-
-Goal:
-- create simulator to poke at the toxic liquidation spiral with
-- things to poke:
-    - changing parameters to see range of behavior 
-    - seeing if the % of loss is wiggable 
-    - 
- 
-
-*/
-
 struct BaseJumpRateModelV2Params {
     uint baseRatePerYear;
     uint multiplierPerYear;
@@ -43,9 +31,15 @@ struct ComptrollerParams {
 }
 
 /**
- * @title Instrumented Compound v2 for Exploring Toxic Liquidity Spirals
+ * @title Instrumented Compound v2 for Exploring Toxic Liquidation Spirals
  * @author Lilyjjo
- * @notice The Compound Pool is only setup to handle 2 assets
+ * @notice This testing contract is setup to allow users to simulate different trading and price scenarios on Compound v2.
+ * The function `findToxicLTVExternalLosses()` allows users to run toxic liquidation spirals with different setup
+ * configurations and to compare the relative impacts of the configuration changes.
+ * The file has three main sections:
+ * - Functions to make interacting with the Compound setup easier
+ * - Insight functions to print out the current state of the Compound setup
+ * - Testing scenarios to show the behavior of Compound during different scenarios
  */
 contract ToxicLiquidityExploration is Test {
     SimplePriceOracle public oracle;
@@ -82,6 +76,77 @@ contract ToxicLiquidityExploration is Test {
 
     MockERC20 usdc;
     MockERC20 borrowToken;
+
+    /**
+     * @notice Sets up instrumentation. Includes: creating test accounts, creating
+     * ERC20s/cTokens/Comptroller/Oralce contracts, and gluing everything together
+     * @dev Currently uses global variables for initialization // TODO: fix this
+     */
+    function setUp() public {
+        oracle = new SimplePriceOracle();
+
+        admin = vm.addr(1000);
+        names[admin] = "Admin";
+        userA = vm.addr(1001);
+        names[userA] = "UserA";
+        userB = vm.addr(1002);
+        names[userB] = "UserB";
+        userC = vm.addr(1003);
+        names[userC] = "UserC";
+        whale = vm.addr(1004);
+        names[whale] = "Whale";
+
+        interestModel = new JumpRateModelV2(
+            baseRatePerYear,
+            multiplierPerYear,
+            jumpMultiplierPerYear,
+            kink,
+            admin
+        );
+
+        vm.startPrank(admin);
+
+        usdc = new MockERC20("USDC", "USDC", ERC20Decimals);
+        borrowToken = new MockERC20("CRV", "CRV", ERC20Decimals);
+
+        comptroller = new Comptroller();
+        comptroller._setPriceOracle(oracle);
+
+        cUSDC = new CErc20Immutable(
+            address(usdc),
+            comptroller,
+            interestModel,
+            initialExchangeRateMantissa,
+            "Compound USD Coin",
+            "cUSCD",
+            cTokenDecimals,
+            payable(admin)
+        );
+
+        cBorrowedToken = new CErc20Immutable(
+            address(borrowToken),
+            comptroller,
+            interestModel,
+            initialExchangeRateMantissa,
+            "Compound Borrow Coin",
+            "cBorrowedToken",
+            cTokenDecimals,
+            payable(admin)
+        );
+
+        comptroller._supportMarket(cUSDC);
+        comptroller._supportMarket(cBorrowedToken);
+
+        vm.stopPrank();
+
+        addToMarkets(userA);
+        addToMarkets(userB);
+        addToMarkets(whale);
+    }
+
+    /*****************************************
+     *  Functions to interact with Compound: *
+     *****************************************/
 
     /**
      * @notice Sets needed comptroller variables
@@ -299,76 +364,89 @@ contract ToxicLiquidityExploration is Test {
         }
     }
 
-    /**
-     * @notice Sets up instrumentation. Includes: creating test accounts, creating
-     * ERC20s/cTokens/Comptroller/Oralce contracts, and glues everything together
-     * @dev Currently uses global variables for initialization // TODO: fix this
-     */
-    function setUp() public {
-        oracle = new SimplePriceOracle();
+    /****************************************
+     *          Insight Functions:          *
+     ****************************************/
 
-        admin = vm.addr(1000);
-        names[admin] = "Admin";
-        userA = vm.addr(1001);
-        names[userA] = "UserA";
-        userB = vm.addr(1002);
-        names[userB] = "UserB";
-        userC = vm.addr(1003);
-        names[userC] = "UserC";
-        whale = vm.addr(1004);
-        names[whale] = "Whale";
-
-        interestModel = new JumpRateModelV2(
-            baseRatePerYear,
-            multiplierPerYear,
-            jumpMultiplierPerYear,
-            kink,
-            admin
-        );
-
-        vm.startPrank(admin);
-
-        usdc = new MockERC20("USDC", "USDC", ERC20Decimals);
-        borrowToken = new MockERC20("CRV", "CRV", ERC20Decimals);
-
-        comptroller = new Comptroller();
-        comptroller._setPriceOracle(oracle);
-
-        cUSDC = new CErc20Immutable(
-            address(usdc),
-            comptroller,
-            interestModel,
-            initialExchangeRateMantissa,
-            "Compound USD Coin",
-            "cUSCD",
-            cTokenDecimals,
-            payable(admin)
-        );
-
-        cBorrowedToken = new CErc20Immutable(
-            address(borrowToken),
-            comptroller,
-            interestModel,
-            initialExchangeRateMantissa,
-            "Compound Borrow Coin",
-            "cBorrowedToken",
-            cTokenDecimals,
-            payable(admin)
-        );
-
-        comptroller._supportMarket(cUSDC);
-        comptroller._supportMarket(cBorrowedToken);
-
-        vm.stopPrank();
-
-        addToMarkets(userA);
-        addToMarkets(userB);
-        addToMarkets(whale);
+    function printPoolBalances() public view {
+        console.log("Pool balances: ");
+        console.log("  USCD reserves  : ", cUSDC.getCash());
+        console.log("  CRV reserves : ", cBorrowedToken.getCash());
+        console.log("  USCD borrows   : ", cUSDC.totalBorrows());
+        console.log("  CRV borrows    : ", cBorrowedToken.totalBorrows());
     }
 
+    function interpretGains(
+        int[4] memory gains,
+        int priceUSDC,
+        int priceBorrow
+    ) public {
+        printPoolBalances();
+        printBalances(whale);
+        printBalances(userA);
+        printBalances(userB);
+        console.log("Gains/Loss of target: ");
+        console.logInt(gains[0]);
+        console.log("Gains/Loss of attacker: ");
+        console.logInt(gains[1]);
+        console.log("Gains/Loss of combined attacker/target:");
+        console.logInt(gains[0] + gains[1]);
+        console.log("Gains/Loss of whale's USDC: ");
+        console.logInt(gains[2]);
+        console.log("Gains/Loss of whale's BorrowedToken: ");
+        console.logInt(gains[3]);
+        console.log("Gains/Loss of whale combined in terms of USDC:");
+        console.logInt(gains[2] + ((gains[3] * priceUSDC) / priceBorrow));
+    }
+
+    function printBalances(address user) public {
+        console.log("User %s account snapshot:", names[user]);
+        (uint err, uint liquidity, uint shortfall) = comptroller
+            .getAccountLiquidity(user);
+
+        uint256 usdcBalance = usdc.balanceOf(user);
+        uint256 cUSDCBalance = cUSDC.balanceOfUnderlying(user);
+        uint256 cBorrowedTokenBalance = cBorrowedToken.balanceOfUnderlying(
+            user
+        );
+        uint256 borrowTokenBalance = borrowToken.balanceOf(user);
+        uint256 cBorrowedTokenBorrowedBalance = cBorrowedToken
+            .borrowBalanceCurrent(user);
+
+        uint256 denominator = (cBorrowedTokenBorrowedBalance *
+            oracle.getUnderlyingPrice(cUSDC) *
+            uscdCollateralFactor) / 1 ether;
+        uint256 numerator = cBorrowedTokenBalance *
+            oracle.getUnderlyingPrice(cBorrowedToken);
+        uint256 LTV;
+        if (denominator != 0) {
+            LTV = (numerator * 10000) / denominator;
+        } else {
+            LTV = 0;
+        }
+        uint256 toxicLTV = (1 ether * 1 ether * 10000) /
+            (liquidationIncentive * uscdCollateralFactor);
+
+        console.log("  USDC : ", usdcBalance);
+        console.log("  CRV  : ", borrowTokenBalance);
+        console.log("  cUSDC: ", cUSDCBalance);
+        console.log("  cBorrowedToken : ", cBorrowedTokenBalance);
+        console.log("  borrowed CRV     : ", cBorrowedTokenBorrowedBalance);
+        console.log("  borrow value     : ", numerator / 1 ether);
+        console.log("  collateral value : ", denominator / 1 ether);
+        console.log("  liquidity: ", liquidity);
+        console.log("  shortfall: ", shortfall);
+        console.log("  LTV              : ", LTV);
+        console.log("  Toxic LTV        : ", toxicLTV);
+        console.log("  LTV is toxic     : ", LTV > toxicLTV);
+    }
+
+    /****************************************
+     *                 Tests:                *
+     *****************************************/
+
     /**
-     * @notice Performs simple short on Compound setup to see that everything
-     * is working as intended.
+     * @notice Performs simple short on Compound setup to see that everything is working as intended.
      */
     function testSimpleShort() public {
         // set up protocol
@@ -416,16 +494,39 @@ contract ToxicLiquidityExploration is Test {
         //printAll();
     }
 
+    /**
+     * @notice Runs an attack on the Compound pool similar to that of the 0VIX protocol attack (https://0vixprotocol.medium.com/0vix-exploit-post-mortem-15c882dcf479).
+     * In this scenario there are three different accounts created:
+     * - 'target' account: an account that has borrowed and will be induced into the TLTV range and be liquidated on a loop
+     * - 'attacker' account: the account performing the liquidations
+     * - 'whale' account: account representing other users who are not involved in the attack
+     * note: the 'target' and 'attacker' can be the same off-chain entity but this isn't required
+     * @param targetTLTV The target toxic loan to value ratio (used python modeling to determine equation)
+     * @param liquidationIncentive_ The liquidation incentive to use in the Compound setup (affects TLTV ratio)
+     * @param closeFactor_ The perecnt of an account that is able to be liquidated in a single liquidation call (Compound setup var)
+     * @param uscdCollateralFactor_ The collateral factor applied to the collateral asset (USDC in this case). Affects the TLTV ratio
+     //* @ param borrowTokenCollateralFactor_ The collateral factor applied to the borrowed asset (has no affect in this scenario)
+     * @param usdcPrice The price of the USDC asset (held steady)
+     * @param borrowTokenStartPrice The starting price of the borrowed token asset (is changed in scenario to affect target TLTV)
+     * @param startUSDCAmountTarget How much USDC to have the target start with
+     * @param startUSDCAmountAttacker How much USDC to have the attacker start with
+     * @param startUSDCAmountWhale How much USDC to have the whale start with
+     * @param startBorrowAmountWhale How much borrow token to have the whale start with
+     * @return accountGains The gains/losses that occured to the above accounts relative to their starting usdc balances
+     */
     function findToxicLTVExternalLosses(
         uint targetTLTV,
         uint liquidationIncentive_,
         uint closeFactor_,
         uint uscdCollateralFactor_,
-        uint borrowTokenCollateralFactor_,
+        //uint borrowTokenCollateralFactor_,
         uint usdcPrice,
         uint borrowTokenStartPrice,
-        uint startUSDCAmount
-    ) public {
+        uint startUSDCAmountTarget,
+        uint startUSDCAmountAttacker,
+        uint startUSDCAmountWhale,
+        uint startBorrowAmountWhale
+    ) public returns (int256[4] memory accountGains) {
         // require targetTLTV to actually be toxic
         require(
             targetTLTV >=
@@ -438,7 +539,7 @@ contract ToxicLiquidityExploration is Test {
         liquidationIncentive = liquidationIncentive_;
         closeFactor = closeFactor_;
         uscdCollateralFactor = uscdCollateralFactor_;
-        borrowTokenCollateralFactor = borrowTokenCollateralFactor_;
+        borrowTokenCollateralFactor = uscdCollateralFactor_; // should be different but having stack too deep errors
 
         // set up prices
         oracle.setUnderlyingPrice(cUSDC, usdcPrice);
@@ -446,36 +547,39 @@ contract ToxicLiquidityExploration is Test {
 
         setUpComptroller();
 
-        // set up whale reserves
-        mintFundsAndCollateral(whale, usdc, cUSDC, 20_000);
-        mintFundsAndCollateral(whale, borrowToken, cBorrowedToken, 20_000);
-
-        // setup attacker account with same initial funds
-        giveUserFunds(userB, usdc, startUSDCAmount);
-        swapAssets(userB, usdc, borrowToken, startUSDCAmount);
-
-        // setup target account with initial LTV at .8 (non liquidatable level)
-        mintFundsAndCollateral(userA, usdc, cUSDC, startUSDCAmount);
-        // uint256 borrowAmount = (startUSDCAmount - (startUSDCAmount * 28 / 100)) * uscdCollateralFactor * 8 / (borrowTokenStartPrice * 10);
-        uint256 borrowAmount = ((startUSDCAmount) * uscdCollateralFactor * 8) /
-            (borrowTokenStartPrice * 10);
-        borrow(userA, borrowToken, cBorrowedToken, borrowAmount);
-        // borrow(userA, usdc, cUSDC, startUSDCAmount * 28 / 100);
-        //console.log(getLTV(userA));
-        printBalances(userA);
-        require(
-            getLTV(userA) < 8010 && getLTV(userA) > 7090,
-            "realized inital LTV wrong"
+        // set up whale reserves, buying 20_000 usdc's worth of both usdc and borrowed asset
+        mintFundsAndCollateral(whale, usdc, cUSDC, startUSDCAmountWhale);
+        mintFundsAndCollateral(
+            whale,
+            borrowToken,
+            cBorrowedToken,
+            startBorrowAmountWhale
         );
 
-        // figure out price to hit targetTLTV
-        // attacker would manipulate an oracle somehow to achieve
+        // setup target account with initial LTV at .8 (non liquidatable level)
+        mintFundsAndCollateral(userA, usdc, cUSDC, startUSDCAmountTarget);
+        uint256 borrowAmount = ((startUSDCAmountTarget) *
+            uscdCollateralFactor *
+            8) / (borrowTokenStartPrice * 10);
+
+        borrow(userA, borrowToken, cBorrowedToken, borrowAmount);
+        require(
+            getLTV(userA) < 8010 && getLTV(userA) > 7090,
+            "inital LTV of target user is outside target range"
+        );
+
+        // setup attacker account with initial funds
+        giveUserFunds(userB, usdc, startUSDCAmountAttacker);
+        swapAssets(userB, usdc, borrowToken, startUSDCAmountAttacker);
+
+        // figure out price of borrowed asset to hit targetTLTV for target account
+        // attacker would manipulate an oracle somehow to achieve (or price would just drop here -- sad!)
         uint256 borrowTokenNewPrice = (targetTLTV *
             cUSDC.balanceOfUnderlying(userA) *
             uscdCollateralFactor_) / (borrowToken.balanceOf(userA) * 10000);
-
-        // see target TLTV hit
         oracle.setUnderlyingPrice(cBorrowedToken, borrowTokenNewPrice);
+
+        // see target TLTV is hit for target account with .001 wiggle room
         require(
             getLTV(userA) < targetTLTV + 10 && getLTV(userA) > targetTLTV - 10,
             "realized target TLTV wrong"
@@ -514,126 +618,65 @@ contract ToxicLiquidityExploration is Test {
         }
         console.log("loops: ", liquidationLoops);
 
+        // replace actual price to reflect gains/losses more clearly on open market
+        oracle.setUnderlyingPrice(cBorrowedToken, borrowTokenStartPrice);
+
         // have userB transfer his funds out of the protocol
         removeCollateral(userB, cUSDC, cUSDC.balanceOfUnderlying(userB));
-        // replace actual price to reflect userB's gains more clearly
-        oracle.setUnderlyingPrice(cBorrowedToken, borrowTokenStartPrice);
         swapAssets(userB, borrowToken, usdc, borrowToken.balanceOf(userB));
 
-        // if userB and userA are same person, add userA's losses
+        // have userA swap borrowed funds for usdc
         swapAssets(userA, borrowToken, usdc, borrowToken.balanceOf(userA));
 
-        // remove userC's portion too
-        //repayBorrow(userC, usdc, cUSDC, cUSDC.borrowBalanceCurrent(userC));
-        //removeCollateral(userC, cUSDC, cUSDC.balanceOfUndpwderlying(userC));
+        // have whale withdraw all assets they can from pool
+        removeCollateral(whale, cUSDC, cUSDC.balanceOfUnderlying(whale));
+        // note: balance of whale's borrowed token is less than what is contained in the pool
+        assert(
+            borrowToken.balanceOf(address(cBorrowedToken)) <
+                cBorrowedToken.balanceOf(whale)
+        );
+        removeCollateral(
+            whale,
+            cBorrowedToken,
+            borrowToken.balanceOf(address(cBorrowedToken)) // this is max available in pool for withdrawl, note is SMALLER than whale's reserves
+        );
 
-        uint256 startValue = 2 * startUSDCAmount;
-        uint256 endValue = usdc.balanceOf(userA) + usdc.balanceOf(userB);
+        accountGains[0] =
+            int256(usdc.balanceOf(userA)) -
+            int256(startUSDCAmountTarget);
+        accountGains[1] =
+            int256(usdc.balanceOf(userB)) -
+            int256(startUSDCAmountAttacker);
+        accountGains[2] =
+            int256(usdc.balanceOf(whale)) -
+            int256(startUSDCAmountWhale);
+        accountGains[3] =
+            int256(borrowToken.balanceOf(whale)) -
+            int256(startBorrowAmountWhale);
 
-        printAll();
-        console.log("start value: ", startValue);
-        console.log("end value  : ", endValue);
+        interpretGains(
+            accountGains,
+            int(usdcPrice),
+            int(borrowTokenStartPrice)
+        );
     }
 
+    /**
+     * @notice Test to show behavior of Toxic Liquidity Spiral when prices are initially equal
+     */
     function testTLTVEqualPrice() public {
         findToxicLTVExternalLosses(
             13500,
             1100000000000000000,
             500000000000000000,
             855000000000000000,
-            550000000000000000,
+            // 550000000000000000,
             1 ether,
             1 ether,
-            10000
+            10_000,
+            10_000,
+            20_000,
+            20_000
         );
-    }
-
-    function testTLTVHigherBorrowPrice() public {
-        //findToxicLTVExternalLosses(13500, 1100000000000000000, 500000000000000000, 855000000000000000, 550000000000000000, 1 ether, 1.5 ether, 10000);
-    }
-
-    function testTLTVLowerBorrowPrice() public {
-        //findToxicLTVExternalLosses(13500, 1100000000000000000, 500000000000000000, 855000000000000000, 550000000000000000, 1 ether, 0.5 ether, 10000);
-    }
-
-    function printPoolBalances() public {
-        console.log("Pool balances: ");
-        console.log("  USCD reserves  : ", cUSDC.getCash());
-        console.log("  CRV collateral : ", cBorrowedToken.getCash());
-        console.log("  USCD borrows   : ", cUSDC.totalBorrows());
-        console.log("  CRV borrows    : ", cBorrowedToken.totalBorrows());
-    }
-
-    function printBalances(address user) public {
-        console.log("User %s account snapshot:", names[user]);
-        (uint err, uint liquidity, uint shortfall) = comptroller
-            .getAccountLiquidity(user);
-
-        uint256 usdcBalance = usdc.balanceOf(user);
-        uint256 cUSDCBalance = cUSDC.balanceOfUnderlying(user);
-        uint256 cBorrowedTokenBalance = cBorrowedToken.balanceOfUnderlying(
-            user
-        );
-        uint256 borrowTokenBalance = borrowToken.balanceOf(user);
-        uint256 cBorrowedTokenBorrowedBalance = cBorrowedToken
-            .borrowBalanceCurrent(user);
-
-        uint256 denominator = (cBorrowedTokenBorrowedBalance *
-            oracle.getUnderlyingPrice(cUSDC) *
-            uscdCollateralFactor) / 1 ether;
-        uint256 numerator = cBorrowedTokenBalance *
-            oracle.getUnderlyingPrice(cBorrowedToken);
-        uint256 LTV;
-        if (denominator != 0) {
-            LTV = (numerator * 10000) / denominator;
-        } else {
-            LTV = 0;
-        }
-        uint256 toxicLTV = (1 ether * 1 ether * 10000) /
-            (liquidationIncentive * uscdCollateralFactor);
-
-        console.log("  USDC : ", usdcBalance);
-        console.log("  CRV  : ", borrowTokenBalance);
-        console.log("  cUSDC: ", cUSDCBalance);
-        console.log("  cBorrowedToken : ", cBorrowedTokenBalance);
-        console.log("  borrowed CRV     : ", cBorrowedTokenBorrowedBalance);
-        console.log("  borrow value     : ", numerator / 1 ether);
-        console.log("  collateral value : ", denominator / 1 ether);
-        console.log("  liquidity: ", liquidity);
-        console.log("  shortfall: ", shortfall);
-        console.log("  LTV              : ", LTV);
-        console.log("  Toxic LTV        : ", toxicLTV);
-        console.log("  LTV is toxic     : ", LTV > toxicLTV);
-    }
-
-    function printAll() public {
-        printPoolBalances();
-        printBalances(whale);
-        printBalances(userA);
-        printBalances(userB);
-        printBalances(userC);
     }
 }
-
-/*
-
-cast call 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 \
-  "balanceOf(address)(uint256)" 0x...
-
-
-
-/*
-
-Foundry Testing Codes:
-
-sender = vm.addr(1001);
-receiver = vm.addr(1002);
-
-vm.deal(user, 100_000 ether);
-
-vm.startPrank(address);        
-vm.stopPrank();
-
-vm.warp(block.timestamp + time);
-
-*/
