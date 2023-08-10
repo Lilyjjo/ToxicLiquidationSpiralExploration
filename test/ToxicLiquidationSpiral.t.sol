@@ -662,5 +662,19 @@ contract ToxicLiquidityExploration is Test {
             20_000,
             20_000
         );
+        /* Output of running test:
+            Gains/Loss of target:
+            -3160
+            Gains/Loss of attacker:
+            4331
+            Gains/Loss of combined attacker/target:
+            1171
+            Gains/Loss of whale's USDC:
+            2
+            Gains/Loss of whale's BorrowedToken:
+            -1456
+            Gains/Loss of whale combined in terms of USDC:
+            -1454
+        */
     }
 }
