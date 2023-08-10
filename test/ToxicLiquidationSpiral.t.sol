@@ -14,22 +14,6 @@ import "../src/SimplePriceOracle.sol";
 import "../src/MockTokens/MockERC20.sol";
 import "../src/ErrorReporter.sol";
 
-struct BaseJumpRateModelV2Params {
-    uint baseRatePerYear;
-    uint multiplierPerYear;
-    uint jumpMultiplierPerYear;
-    uint kink;
-}
-
-struct ComptrollerParams {
-    uint initialExchangeRateMantissa;
-    uint8 cTokenDecimals;
-    uint USDCCollateralFactor;
-    uint borrowTokenCollateralFactor;
-    uint liquidationIncentive;
-    uint closeFactor;
-}
-
 /**
  * @title Instrumented Compound v2 for Exploring Toxic Liquidation Spirals
  * @author Lilyjjo
@@ -43,22 +27,22 @@ struct ComptrollerParams {
  */
 contract ToxicLiquidityExploration is Test {
     SimplePriceOracle public oracle;
-    Comptroller public comptroller; // https://etherscan.io/address/0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B
-    CErc20Immutable public cUSDC; // https://etherscan.io/address/0x39AA39c021dfbaE8faC545936693aC917d5E7563
-    CErc20Immutable public cBorrowedToken; // made up parameters
-    BaseJumpRateModelV2 public interestModel; // https://etherscan.io/address/0xD8EC56013EA119E7181d231E5048f90fBbe753c0
+    Comptroller public comptroller;
+    CErc20Immutable public cBorrowedToken;
+    CErc20Immutable public cUSDC;
+    BaseJumpRateModelV2 public interestModel;
 
-    // BaseJumpRateModelV2 Params:
+    // BaseJumpRateModelV2 Params, taken from: https://etherscan.io/address/0xD8EC56013EA119E7181d231E5048f90fBbe753c0
     uint baseRatePerYear = 0;
     uint multiplierPerYear = 40000000000000000;
     uint jumpMultiplierPerYear = 1090000000000000000;
     uint kink = 800000000000000000;
 
-    // Comptroller Params:
+    // Comptroller Params, taken from: // https://etherscan.io/address/0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B and https://etherscan.io/address/0x39AA39c021dfbaE8faC545936693aC917d5E7563
     uint initialExchangeRateMantissa = 200000000000000;
     uint8 cTokenDecimals = 8;
 
-    // token Decimals:
+    // Using 18 for all Mock ERC20s for simplicity
     uint ERC20Decimals = 18;
 
     address admin;
@@ -499,7 +483,7 @@ contract ToxicLiquidityExploration is Test {
      * In this scenario there are three different accounts created:
      * - 'target' account: an account that has borrowed and will be induced into the TLTV range and be liquidated on a loop
      * - 'attacker' account: the account performing the liquidations
-     * - 'whale' account: account representing other users who are not involved in the attack
+     * - 'whale' account: an account representing other users who are not involved in the attack
      * note: the 'target' and 'attacker' can be the same off-chain entity but this isn't required
      * @param targetTLTV The target toxic loan to value ratio (used python modeling to determine equation)
      * @param liquidationIncentive_ The liquidation incentive to use in the Compound setup (affects TLTV ratio)
