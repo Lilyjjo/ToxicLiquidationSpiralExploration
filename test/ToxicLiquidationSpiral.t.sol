@@ -14,6 +14,28 @@ import "../src/SimplePriceOracle.sol";
 import "../src/MockTokens/MockERC20.sol";
 import "../src/ErrorReporter.sol";
 
+struct SpiralConfigurationVariables {
+    uint targetTLTV;
+    uint liquidationIncentive;
+    uint closeFactor;
+    uint uscdCollateralFactor;
+    uint borrowCollateralFactor;
+    uint usdcPrice;
+    uint borrowTokenStartPrice;
+    uint startUSDCAmountTarget;
+    uint startUSDCAmountAttacker;
+    uint startUSDCAmountWhale;
+    uint startBorrowAmountWhale;
+}
+
+struct SpiralResultVariables {
+    int gainsTarget;
+    int gainsAttacker;
+    int gainsWhaleUSDC;
+    int gainsWhaleBorrow;
+    uint borrowTokenToxicPrice;
+}
+
 /**
  * @title Instrumented Compound v2 for Exploring Toxic Liquidation Spirals
  * @author Lilyjjo
@@ -361,26 +383,29 @@ contract ToxicLiquidityExploration is Test {
     }
 
     function interpretGains(
-        int[4] memory gains,
-        int priceUSDC,
-        int priceBorrow
+        SpiralConfigurationVariables memory configVars,
+        SpiralResultVariables memory resultVars
     ) public {
         printPoolBalances();
         printBalances(whale);
         printBalances(userA);
         printBalances(userB);
         console.log("Gains/Loss of target: ");
-        console.logInt(gains[0]);
+        console.logInt(resultVars.gainsTarget);
         console.log("Gains/Loss of attacker: ");
-        console.logInt(gains[1]);
+        console.logInt(resultVars.gainsAttacker);
         console.log("Gains/Loss of combined attacker/target:");
-        console.logInt(gains[0] + gains[1]);
+        console.logInt(resultVars.gainsAttacker + resultVars.gainsTarget);
         console.log("Gains/Loss of whale's USDC: ");
-        console.logInt(gains[2]);
+        console.logInt(resultVars.gainsWhaleUSDC);
         console.log("Gains/Loss of whale's BorrowedToken: ");
-        console.logInt(gains[3]);
+        console.logInt(resultVars.gainsWhaleUSDC);
         console.log("Gains/Loss of whale combined in terms of USDC:");
-        console.logInt(gains[2] + ((gains[3] * priceUSDC) / priceBorrow));
+        console.logInt(
+            resultVars.gainsWhaleUSDC +
+                ((resultVars.gainsWhaleBorrow * int(configVars.usdcPrice)) /
+                    int(configVars.borrowTokenStartPrice))
+        );
     }
 
     function printBalances(address user) public {
@@ -485,66 +510,45 @@ contract ToxicLiquidityExploration is Test {
      * - 'attacker' account: the account performing the liquidations
      * - 'whale' account: an account representing other users who are not involved in the attack
      * note: the 'target' and 'attacker' can be the same off-chain entity but this isn't required
-     * @param targetTLTV The target toxic loan to value ratio (used python modeling to determine equation)
-     * @param liquidationIncentive_ The liquidation incentive to use in the Compound setup (affects TLTV ratio)
-     * @param closeFactor_ The perecnt of an account that is able to be liquidated in a single liquidation call (Compound setup var)
-     * @param uscdCollateralFactor_ The collateral factor applied to the collateral asset (USDC in this case). Affects the TLTV ratio
-     //* @ param borrowTokenCollateralFactor_ The collateral factor applied to the borrowed asset (has no affect in this scenario)
-     * @param usdcPrice The price of the USDC asset (held steady)
-     * @param borrowTokenStartPrice The starting price of the borrowed token asset (is changed in scenario to affect target TLTV)
-     * @param startUSDCAmountTarget How much USDC to have the target start with
-     * @param startUSDCAmountAttacker How much USDC to have the attacker start with
-     * @param startUSDCAmountWhale How much USDC to have the whale start with
-     * @param startBorrowAmountWhale How much borrow token to have the whale start with
-     * @return accountGains The gains/losses that occured to the above accounts relative to their starting usdc balances
+     * @param vars The configuration setup for the Spiral
      */
     function findToxicLTVExternalLosses(
-        uint targetTLTV,
-        uint liquidationIncentive_,
-        uint closeFactor_,
-        uint uscdCollateralFactor_,
-        //uint borrowTokenCollateralFactor_,
-        uint usdcPrice,
-        uint borrowTokenStartPrice,
-        uint startUSDCAmountTarget,
-        uint startUSDCAmountAttacker,
-        uint startUSDCAmountWhale,
-        uint startBorrowAmountWhale
-    ) public returns (int256[4] memory accountGains) {
+        SpiralConfigurationVariables memory vars
+    ) public {
         // require targetTLTV to actually be toxic
         require(
-            targetTLTV >=
+            vars.targetTLTV >=
                 (1 * 10000 * 1 ether * 1 ether) /
-                    (liquidationIncentive_ * uscdCollateralFactor_),
+                    (vars.liquidationIncentive * vars.uscdCollateralFactor),
             "targetTLTV need to be toxic"
         );
 
         // set up protocol
-        liquidationIncentive = liquidationIncentive_;
-        closeFactor = closeFactor_;
-        uscdCollateralFactor = uscdCollateralFactor_;
-        borrowTokenCollateralFactor = uscdCollateralFactor_; // should be different but having stack too deep errors
+        liquidationIncentive = vars.liquidationIncentive;
+        closeFactor = vars.closeFactor;
+        uscdCollateralFactor = vars.uscdCollateralFactor;
+        borrowTokenCollateralFactor = vars.borrowCollateralFactor;
 
         // set up prices
-        oracle.setUnderlyingPrice(cUSDC, usdcPrice);
-        oracle.setUnderlyingPrice(cBorrowedToken, borrowTokenStartPrice);
+        oracle.setUnderlyingPrice(cUSDC, vars.usdcPrice);
+        oracle.setUnderlyingPrice(cBorrowedToken, vars.borrowTokenStartPrice);
 
         setUpComptroller();
 
         // set up whale reserves, buying 20_000 usdc's worth of both usdc and borrowed asset
-        mintFundsAndCollateral(whale, usdc, cUSDC, startUSDCAmountWhale);
+        mintFundsAndCollateral(whale, usdc, cUSDC, vars.startUSDCAmountWhale);
         mintFundsAndCollateral(
             whale,
             borrowToken,
             cBorrowedToken,
-            startBorrowAmountWhale
+            vars.startBorrowAmountWhale
         );
 
         // setup target account with initial LTV at .8 (non liquidatable level)
-        mintFundsAndCollateral(userA, usdc, cUSDC, startUSDCAmountTarget);
-        uint256 borrowAmount = ((startUSDCAmountTarget) *
+        mintFundsAndCollateral(userA, usdc, cUSDC, vars.startUSDCAmountTarget);
+        uint256 borrowAmount = ((vars.startUSDCAmountTarget) *
             uscdCollateralFactor *
-            8) / (borrowTokenStartPrice * 10);
+            8) / (vars.borrowTokenStartPrice * 10);
 
         borrow(userA, borrowToken, cBorrowedToken, borrowAmount);
         require(
@@ -553,24 +557,25 @@ contract ToxicLiquidityExploration is Test {
         );
 
         // setup attacker account with initial funds
-        giveUserFunds(userB, usdc, startUSDCAmountAttacker);
-        swapAssets(userB, usdc, borrowToken, startUSDCAmountAttacker);
+        giveUserFunds(userB, usdc, vars.startUSDCAmountAttacker);
+        swapAssets(userB, usdc, borrowToken, vars.startUSDCAmountAttacker);
 
         // figure out price of borrowed asset to hit targetTLTV for target account
         // attacker would manipulate an oracle somehow to achieve (or price would just drop here -- sad!)
-        uint256 borrowTokenNewPrice = (targetTLTV *
+        uint256 borrowTokenNewPrice = (vars.targetTLTV *
             cUSDC.balanceOfUnderlying(userA) *
-            uscdCollateralFactor_) / (borrowToken.balanceOf(userA) * 10000);
+            vars.uscdCollateralFactor) / (borrowToken.balanceOf(userA) * 10000);
         oracle.setUnderlyingPrice(cBorrowedToken, borrowTokenNewPrice);
 
         // see target TLTV is hit for target account with .001 wiggle room
         require(
-            getLTV(userA) < targetTLTV + 10 && getLTV(userA) > targetTLTV - 10,
+            getLTV(userA) < vars.targetTLTV + 10 &&
+                getLTV(userA) > vars.targetTLTV - 10,
             "realized target TLTV wrong"
         );
 
         // loop with maximum closing factor to liquidate
-        uint256 closingAmount = (closeFactor_ *
+        uint256 closingAmount = (vars.closeFactor *
             cBorrowedToken.borrowBalanceCurrent(userA)) / 1 ether;
         uint256 liquidationLoops = 0;
         while (closingAmount > 0 && getLTV(userA) > 0) {
@@ -583,12 +588,13 @@ contract ToxicLiquidityExploration is Test {
                 closingAmount
             );
             closingAmount =
-                (closeFactor_ * cBorrowedToken.borrowBalanceCurrent(userA)) /
+                (vars.closeFactor *
+                    cBorrowedToken.borrowBalanceCurrent(userA)) /
                 1 ether; // amount of borrow tokens
             liquidationLoops++;
             uint256 neededRemainingCollateral = (closingAmount *
                 borrowTokenNewPrice *
-                liquidationIncentive) / (usdcPrice * 1 ether);
+                liquidationIncentive) / (vars.usdcPrice * 1 ether);
             if (cUSDC.balanceOfUnderlying(userA) < neededRemainingCollateral) {
                 if (cUSDC.balanceOfUnderlying(userA) < 10) {
                     // too small to try to claim
@@ -596,14 +602,14 @@ contract ToxicLiquidityExploration is Test {
                 }
                 // set to actual remaining amount of claimable collateral
                 closingAmount =
-                    (closeFactor_ * (cUSDC.balanceOfUnderlying(userA))) /
+                    (vars.closeFactor * (cUSDC.balanceOfUnderlying(userA))) /
                     (borrowTokenNewPrice);
             }
         }
         console.log("loops: ", liquidationLoops);
 
         // replace actual price to reflect gains/losses more clearly on open market
-        oracle.setUnderlyingPrice(cBorrowedToken, borrowTokenStartPrice);
+        oracle.setUnderlyingPrice(cBorrowedToken, vars.borrowTokenStartPrice);
 
         // have userB transfer his funds out of the protocol
         removeCollateral(userB, cUSDC, cUSDC.balanceOfUnderlying(userB));
@@ -625,23 +631,24 @@ contract ToxicLiquidityExploration is Test {
             borrowToken.balanceOf(address(cBorrowedToken)) // this is max available in pool for withdrawl, note is SMALLER than whale's reserves
         );
 
-        accountGains[0] =
-            int256(usdc.balanceOf(userA)) -
-            int256(startUSDCAmountTarget);
-        accountGains[1] =
-            int256(usdc.balanceOf(userB)) -
-            int256(startUSDCAmountAttacker);
-        accountGains[2] =
-            int256(usdc.balanceOf(whale)) -
-            int256(startUSDCAmountWhale);
-        accountGains[3] =
-            int256(borrowToken.balanceOf(whale)) -
-            int256(startBorrowAmountWhale);
+        int targetGains = int256(usdc.balanceOf(userA)) -
+            int256(vars.startUSDCAmountTarget);
+        int attackerGains = int256(usdc.balanceOf(userB)) -
+            int256(vars.startUSDCAmountAttacker);
+        int whaleUSDCGains = int256(usdc.balanceOf(whale)) -
+            int256(vars.startUSDCAmountWhale);
+        int whaleBorrowGains = int256(borrowToken.balanceOf(whale)) -
+            int256(vars.startBorrowAmountWhale);
 
         interpretGains(
-            accountGains,
-            int(usdcPrice),
-            int(borrowTokenStartPrice)
+            vars,
+            SpiralResultVariables(
+                targetGains,
+                attackerGains,
+                whaleUSDCGains,
+                whaleBorrowGains,
+                borrowTokenNewPrice
+            )
         );
     }
 
@@ -650,31 +657,19 @@ contract ToxicLiquidityExploration is Test {
      */
     function testTLTVEqualPrice() public {
         findToxicLTVExternalLosses(
-            13500,
-            1100000000000000000,
-            500000000000000000,
-            855000000000000000,
-            // 550000000000000000,
-            1 ether,
-            1 ether,
-            10_000,
-            10_000,
-            20_000,
-            20_000
+            SpiralConfigurationVariables(
+                13500, // Target Toxic Liquidity Threshold
+                1100000000000000000, // Liquidation Incentive
+                500000000000000000, // Close Factor
+                855000000000000000, // USDC Collateral Factor
+                550000000000000000, // Borrow Collateral Factor
+                1 ether, // USDC Start Price
+                1 ether, // Borrow Start Price
+                10_000, // Starting USDC Amount Target
+                10_000, // Starting USDC Amount Attacker
+                20_000, // Starting USDC Amount Whale
+                20_000 // Starting Borrow Amount Whale
+            )
         );
-        /* Output of running test:
-            Gains/Loss of target:
-            -3160
-            Gains/Loss of attacker:
-            4331
-            Gains/Loss of combined attacker/target:
-            1171
-            Gains/Loss of whale's USDC:
-            2
-            Gains/Loss of whale's BorrowedToken:
-            -1456
-            Gains/Loss of whale combined in terms of USDC:
-            -1454
-        */
     }
 }
