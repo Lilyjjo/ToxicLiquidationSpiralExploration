@@ -386,30 +386,56 @@ contract ToxicLiquidityExploration is Test {
         SpiralConfigurationVariables memory configVars,
         SpiralResultVariables memory resultVars
     ) public {
+        // print general account state
+        console.log("Target Toxic LTV: ", configVars.targetTLTV);
         printPoolBalances();
-        printBalances(whale);
-        printBalances(userA);
-        printBalances(userB);
+        printBalances(whale, "Whale");
+        printBalances(userA, "Target");
+        printBalances(userB, "Attacker");
+
+        // print gains/losses
         console.log("Gains/Loss of target: ");
         console.logInt(resultVars.gainsTarget);
         console.log("Gains/Loss of attacker: ");
         console.logInt(resultVars.gainsAttacker);
         console.log("Gains/Loss of combined attacker/target:");
-        console.logInt(resultVars.gainsAttacker + resultVars.gainsTarget);
+        int gainsAttackerCombined = resultVars.gainsAttacker +
+            resultVars.gainsTarget;
+        console.logInt(gainsAttackerCombined);
         console.log("Gains/Loss of whale's USDC: ");
         console.logInt(resultVars.gainsWhaleUSDC);
         console.log("Gains/Loss of whale's BorrowedToken: ");
-        console.logInt(resultVars.gainsWhaleUSDC);
+        console.logInt(resultVars.gainsWhaleBorrow);
         console.log("Gains/Loss of whale combined in terms of USDC:");
-        console.logInt(
-            resultVars.gainsWhaleUSDC +
-                ((resultVars.gainsWhaleBorrow * int(configVars.usdcPrice)) /
-                    int(configVars.borrowTokenStartPrice))
+        int lossWhaleCombined = resultVars.gainsWhaleUSDC +
+            ((resultVars.gainsWhaleBorrow * int(configVars.usdcPrice)) /
+                int(configVars.borrowTokenStartPrice));
+        console.logInt(lossWhaleCombined);
+
+        // things which should be true
+        assert(lossWhaleCombined < 0);
+        assert(gainsAttackerCombined > 0);
+
+        // print percentages of money
+        uint percentGainNonWhale = uint(gainsAttackerCombined * 10000) /
+            (configVars.startUSDCAmountTarget +
+                configVars.startUSDCAmountAttacker);
+        uint percentLossWhale = uint(-1 * lossWhaleCombined * 10000) /
+            (configVars.startUSDCAmountWhale +
+                configVars.startBorrowAmountWhale);
+        console.log(
+            "Percentage gains non-whale accounts: %d",
+            percentGainNonWhale
         );
+        console.log(
+            "Percentage loss whale              : %d",
+            percentLossWhale
+        );
+        console.log("* both scaled by 100_00");
     }
 
-    function printBalances(address user) public {
-        console.log("User %s account snapshot:", names[user]);
+    function printBalances(address user, string memory name) public {
+        console.log("%s account snapshot:", name);
         (uint err, uint liquidity, uint shortfall) = comptroller
             .getAccountLiquidity(user);
 
@@ -433,8 +459,6 @@ contract ToxicLiquidityExploration is Test {
         } else {
             LTV = 0;
         }
-        uint256 toxicLTV = (1 ether * 1 ether * 10000) /
-            (liquidationIncentive * uscdCollateralFactor);
 
         console.log("  USDC : ", usdcBalance);
         console.log("  CRV  : ", borrowTokenBalance);
@@ -446,8 +470,6 @@ contract ToxicLiquidityExploration is Test {
         console.log("  liquidity: ", liquidity);
         console.log("  shortfall: ", shortfall);
         console.log("  LTV              : ", LTV);
-        console.log("  Toxic LTV        : ", toxicLTV);
-        console.log("  LTV is toxic     : ", LTV > toxicLTV);
     }
 
     /****************************************
