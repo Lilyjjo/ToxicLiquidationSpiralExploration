@@ -382,6 +382,15 @@ contract ToxicLiquidityExploration is Test {
         console.log("  CRV borrows    : ", cBorrowedToken.totalBorrows());
     }
 
+    function exportData() public {
+        string[] memory inputs = new string[](4);
+        inputs[0] = "echo";
+        inputs[1] = "TODO make data";
+        inputs[2] = ">>";
+        inputs[3] = "dataBank.csv";
+        vm.ffi(inputs);
+    }
+
     function interpretGains(
         SpiralConfigurationVariables memory configVars,
         SpiralResultVariables memory resultVars
@@ -557,7 +566,7 @@ contract ToxicLiquidityExploration is Test {
 
         setUpComptroller();
 
-        // set up whale reserves, buying 20_000 usdc's worth of both usdc and borrowed asset
+        // set up whale reserves, buying both usdc and borrowed asset
         mintFundsAndCollateral(whale, usdc, cUSDC, vars.startUSDCAmountWhale);
         mintFundsAndCollateral(
             whale,
