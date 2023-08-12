@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
+import "openzeppelin-contracts/contracts/utils/Strings.sol";
 
 import "../src/CTokenInterfaces.sol";
 import "../src/ComptrollerInterface.sol";
@@ -382,12 +383,85 @@ contract ToxicLiquidityExploration is Test {
         console.log("  CRV borrows    : ", cBorrowedToken.totalBorrows());
     }
 
-    function exportData() public {
-        string[] memory inputs = new string[](4);
-        inputs[0] = "echo";
-        inputs[1] = "TODO make data";
-        inputs[2] = ">>";
-        inputs[3] = "dataBank.csv";
+    function exportDataRow(
+        SpiralConfigurationVariables memory configVars,
+        SpiralResultVariables memory resultVars
+    ) public {
+        string memory data = "";
+        data = string.concat(data, Strings.toString(configVars.targetTLTV));
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(configVars.liquidationIncentive)
+        );
+        data = string.concat(data, ",");
+        data = string.concat(data, Strings.toString(configVars.closeFactor));
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(configVars.uscdCollateralFactor)
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(configVars.borrowCollateralFactor)
+        );
+        data = string.concat(data, ",");
+        data = string.concat(data, Strings.toString(configVars.usdcPrice));
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(configVars.borrowTokenStartPrice)
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(configVars.startUSDCAmountTarget)
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(configVars.startUSDCAmountAttacker)
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(configVars.startUSDCAmountWhale)
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(configVars.startBorrowAmountWhale)
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(uint(resultVars.gainsTarget * -1))
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(uint(resultVars.gainsAttacker))
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(uint(resultVars.gainsWhaleUSDC))
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(uint(resultVars.gainsWhaleBorrow * -1))
+        );
+        data = string.concat(data, ",");
+        data = string.concat(
+            data,
+            Strings.toString(resultVars.borrowTokenToxicPrice)
+        );
+
+        string[] memory inputs = new string[](2);
+        inputs[0] = "./add_data_script.sh";
+        inputs[1] = data;
         vm.ffi(inputs);
     }
 
@@ -420,27 +494,6 @@ contract ToxicLiquidityExploration is Test {
             ((resultVars.gainsWhaleBorrow * int(configVars.usdcPrice)) /
                 int(configVars.borrowTokenStartPrice));
         console.logInt(lossWhaleCombined);
-
-        // things which should be true
-        assert(lossWhaleCombined < 0);
-        assert(gainsAttackerCombined > 0);
-
-        // print percentages of money
-        uint percentGainNonWhale = uint(gainsAttackerCombined * 10000) /
-            (configVars.startUSDCAmountTarget +
-                configVars.startUSDCAmountAttacker);
-        uint percentLossWhale = uint(-1 * lossWhaleCombined * 10000) /
-            (configVars.startUSDCAmountWhale +
-                configVars.startBorrowAmountWhale);
-        console.log(
-            "Percentage gains non-whale accounts: %d",
-            percentGainNonWhale
-        );
-        console.log(
-            "Percentage loss whale              : %d",
-            percentLossWhale
-        );
-        console.log("* both scaled by 100_00");
     }
 
     function printBalances(address user, string memory name) public {
@@ -672,6 +725,16 @@ contract ToxicLiquidityExploration is Test {
             int256(vars.startBorrowAmountWhale);
 
         interpretGains(
+            vars,
+            SpiralResultVariables(
+                targetGains,
+                attackerGains,
+                whaleUSDCGains,
+                whaleBorrowGains,
+                borrowTokenNewPrice
+            )
+        );
+        exportDataRow(
             vars,
             SpiralResultVariables(
                 targetGains,

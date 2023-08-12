@@ -16,4 +16,7 @@ The suite currently runs two tests on the Compound fork:
 - A toxic liquidation spiral attack similar to the 0VIX attack
 
 
+Results for tests ran with the 'findToxicLTVExternalLosses()' function export the test results to a CSV file that can be opened with Google Sheets or Excel for further analysis. The idea is that you'd run a fuzzer and see the range of behaviors (is a WIP). A clean data header can be found at `dataHeaderNoData.csv` and the expected output filename is `dataBank.csv`. The script used to move the data is called `add_data_script.sh` and assumes a unix-like machine. Window users will have to modify. 
+
+
 The testing suite is setup to allow more tests to be added. 

@@ -14,4 +14,4 @@ docs/
 .env
 
 # CSV data files
-*.csv
+dataBank.csv

@@ -1,0 +1,1 @@
+targetTLTV, liquidationIncentive, closeFactor, usdcCollateralFactor, borrowCollateralFactor, usdcPrice, borrowTokenStartPrice, startUSDCAmountTarget, startUSDCAmountAttacker, startUSDCAmountWhale, startBorrowAmountWhale, gainsTarget, gainsAttacker, gainsWhaleUSDC, gainsWhaleBorrow, borrowTokenToxicPrice
