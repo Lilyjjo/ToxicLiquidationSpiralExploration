@@ -20,33 +20,33 @@ import "./utils/TLSStructs.sol";
 import "./utils/DataExport.sol";
 
 /**
- * @title Instrumented Compound v2 for Exploring Toxic Liquidation Spirals
+ * @title Test contract for running Toxic Liquidity Spirals on a Compound V2 Fork
  * @author Lilyjjo
  * @notice This testing contract is setup to allow users to simulate different trading and price scenarios on Compound v2.
  * The function `findToxicLTVExternalLosses()` allows users to run toxic liquidation spirals with different setup
  * configurations and to compare the relative impacts of the configuration changes.
- * The file has three main sections:
- * - Functions to make interacting with the Compound setup easier
- * - Insight functions to print out the current state of the Compound setup
- * - Testing scenarios to show the behavior of Compound during different scenarios
  */
-contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
-    // test accounts
+contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
+    // Accounts for use in test writing
     address userA;
     address userB;
     address userC;
     address whale;
 
     /**
-     * @notice Sets up instrumentation. Includes: creating test accounts, creating
-     * ERC20s/cTokens/Comptroller/Oralce contracts, and gluing everything together
-     * @dev Currently uses global variables for initialization // TODO: fix this
+     * @notice Sets up a clean Compound V2 fork per test run.
      */
-    function setUp() public {
-        oracle = new SimplePriceOracle();
+    function setUpTest(
+        CompoundV2InitializationVars memory protocolVars
+    ) public {
+        setUpComptrollerContracts(protocolVars);
+        setUpUserAccounts();
+    }
 
-        admin = vm.addr(1000);
-        names[admin] = "Admin";
+    /**
+     * @notice Initializes addresses for use in tests.
+     */
+    function setUpUserAccounts() internal {
         userA = vm.addr(1001);
         names[userA] = "UserA";
         userB = vm.addr(1002);
@@ -56,64 +56,28 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
         whale = vm.addr(1004);
         names[whale] = "Whale";
 
-        interestModel = new JumpRateModelV2(
-            baseRatePerYear,
-            multiplierPerYear,
-            jumpMultiplierPerYear,
-            kink,
-            admin
-        );
-
-        vm.startPrank(admin);
-
-        usdc = new MockERC20("USDC", "USDC", ERC20Decimals);
-        borrowToken = new MockERC20("CRV", "CRV", ERC20Decimals);
-
-        comptroller = new Comptroller();
-        comptroller._setPriceOracle(oracle);
-
-        cUSDC = new CErc20Immutable(
-            address(usdc),
-            comptroller,
-            interestModel,
-            initialExchangeRateMantissa,
-            "Compound USD Coin",
-            "cUSCD",
-            cTokenDecimals,
-            payable(admin)
-        );
-
-        cBorrowedToken = new CErc20Immutable(
-            address(borrowToken),
-            comptroller,
-            interestModel,
-            initialExchangeRateMantissa,
-            "Compound Borrow Coin",
-            "cBorrowedToken",
-            cTokenDecimals,
-            payable(admin)
-        );
-
-        comptroller._supportMarket(cUSDC);
-        comptroller._supportMarket(cBorrowedToken);
-
-        vm.stopPrank();
-
         addToMarkets(userA);
         addToMarkets(userB);
         addToMarkets(whale);
     }
 
+    /**
+     * @notice Prints out human readable interpretation of a Toxic Liquidity
+     * Spiral scenario.
+     * @param configVars The configuration variables TLS test was run with
+     * @param resultVars The resulting state after the test compeletes
+     */
     function interpretGains(
+        CompoundV2InitializationVars memory protocolVars,
         SpiralConfigurationVariables memory configVars,
         SpiralResultVariables memory resultVars
     ) public {
         // print general account state
         console.log("Target Toxic LTV: ", configVars.targetTLTV);
         printPoolBalances();
-        printBalances(whale, "Whale");
-        printBalances(userA, "Target");
-        printBalances(userB, "Attacker");
+        printUserBalances(whale, "Whale", protocolVars);
+        printUserBalances(userA, "Target", protocolVars);
+        printUserBalances(userB, "Attacker", protocolVars);
 
         // print gains/losses
         console.log("Gains/Loss of target: ");
@@ -135,26 +99,25 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
         console.logInt(lossWhaleCombined);
     }
 
-    /****************************************
-     *                 Tests:                *
+    /*****************************************
+     *                 Tests                 *
      *****************************************/
 
     /**
      * @notice Performs simple short on Compound setup to see that everything is working as intended.
      */
     function testSimpleShort() public {
-        // set up protocol
-        uscdCollateralFactor = 855000000000000000;
-        borrowTokenCollateralFactor = 550000000000000000;
-        closeFactor = 500000000000000000;
-        liquidationIncentive = 1080000000000000000;
+        CompoundV2InitializationVars
+            memory protocolVars = basicInitializationVars(
+                855000000000000000, // uscdCollateralFactor
+                550000000000000000, // borrowTokenCollateralFactor
+                1080000000000000000, // liquidationIncentive
+                500000000000000000 // closeFactor
+            );
 
-        // set up prices
-        oracle.setUnderlyingPrice(cUSDC, 1 ether);
-        oracle.setUnderlyingPrice(cBorrowedToken, 1 ether);
-
+        setUpTest(protocolVars);
         // set comptroller variables
-        setUpComptroller();
+        initializeComptroller(1 ether, 1 ether, protocolVars);
 
         // set up whale reserves
         mintFundsAndCollateral(whale, usdc, cUSDC, 10_000);
@@ -164,7 +127,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
         // the collateral because they think the price of the borrow will drop)
         uint256 userAStartUSDC = 1000;
         mintFundsAndCollateral(userA, usdc, cUSDC, userAStartUSDC);
-        borrow(userA, borrowToken, cBorrowedToken, 500);
+        borrow(userA, cBorrowedToken, 500);
         swapAssets(userA, borrowToken, usdc, 500);
 
         // price does drop!
@@ -198,6 +161,16 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
     function findToxicLTVExternalLosses(
         SpiralConfigurationVariables memory vars
     ) public {
+        CompoundV2InitializationVars
+            memory protocolVars = basicInitializationVars(
+                vars.uscdCollateralFactor,
+                vars.borrowCollateralFactor,
+                vars.liquidationIncentive,
+                vars.closeFactor
+            );
+
+        setUpTest(protocolVars);
+
         // require targetTLTV to actually be toxic
         require(
             vars.targetTLTV >=
@@ -206,17 +179,11 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
             "targetTLTV need to be toxic"
         );
 
-        // set up protocol
-        liquidationIncentive = vars.liquidationIncentive;
-        closeFactor = vars.closeFactor;
-        uscdCollateralFactor = vars.uscdCollateralFactor;
-        borrowTokenCollateralFactor = vars.borrowCollateralFactor;
-
-        // set up prices
-        oracle.setUnderlyingPrice(cUSDC, vars.usdcPrice);
-        oracle.setUnderlyingPrice(cBorrowedToken, vars.borrowTokenStartPrice);
-
-        setUpComptroller();
+        initializeComptroller(
+            vars.usdcPrice,
+            vars.borrowTokenStartPrice,
+            protocolVars
+        );
 
         // set up whale reserves, buying both usdc and borrowed asset
         mintFundsAndCollateral(whale, usdc, cUSDC, vars.startUSDCAmountWhale);
@@ -230,12 +197,13 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
         // setup target account with initial LTV at .8 (non liquidatable level)
         mintFundsAndCollateral(userA, usdc, cUSDC, vars.startUSDCAmountTarget);
         uint256 borrowAmount = ((vars.startUSDCAmountTarget) *
-            uscdCollateralFactor *
+            protocolVars.uscdCollateralFactor *
             8) / (vars.borrowTokenStartPrice * 10);
 
-        borrow(userA, borrowToken, cBorrowedToken, borrowAmount);
+        borrow(userA, cBorrowedToken, borrowAmount);
         require(
-            getLTV(userA) < 8010 && getLTV(userA) > 7090,
+            getLTV(userA, protocolVars) < 8010 &&
+                getLTV(userA, protocolVars) > 7090,
             "inital LTV of target user is outside target range"
         );
 
@@ -252,8 +220,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
 
         // see target TLTV is hit for target account with .001 wiggle room
         require(
-            getLTV(userA) < vars.targetTLTV + 10 &&
-                getLTV(userA) > vars.targetTLTV - 10,
+            getLTV(userA, protocolVars) < vars.targetTLTV + 10 &&
+                getLTV(userA, protocolVars) > vars.targetTLTV - 10,
             "realized target TLTV wrong"
         );
 
@@ -261,7 +229,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
         uint256 closingAmount = (vars.closeFactor *
             cBorrowedToken.borrowBalanceCurrent(userA)) / 1 ether;
         uint256 liquidationLoops = 0;
-        while (closingAmount > 0 && getLTV(userA) > 0) {
+        while (closingAmount > 0 && getLTV(userA, protocolVars) > 0) {
             liquidate(
                 userB,
                 userA,
@@ -277,7 +245,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
             liquidationLoops++;
             uint256 neededRemainingCollateral = (closingAmount *
                 borrowTokenNewPrice *
-                liquidationIncentive) / (vars.usdcPrice * 1 ether);
+                protocolVars.liquidationIncentive) / (vars.usdcPrice * 1 ether);
             if (cUSDC.balanceOfUnderlying(userA) < neededRemainingCollateral) {
                 if (cUSDC.balanceOfUnderlying(userA) < 10) {
                     // too small to try to claim
@@ -324,6 +292,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
             int256(vars.startBorrowAmountWhale);
 
         interpretGains(
+            protocolVars,
             vars,
             SpiralResultVariables(
                 targetGains,

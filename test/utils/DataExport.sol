@@ -11,7 +11,7 @@ import "./TLSStructs.sol";
  * @author Lilyjjo
  * @notice Contract to hold logic for printing out a row of test data to a file
  */
-contract ExportData is Test {
+contract ExportDataUtil is Test {
     /**
      * @notice Turns Toxic Liquidation Spiral config and result structs
      * into a string of comma separated data, can be used in .CSV files

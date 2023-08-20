@@ -15,16 +15,25 @@ import "../../src/SimplePriceOracle.sol";
 import "../../src/MockTokens/MockERC20.sol";
 import "../../src/ErrorReporter.sol";
 
+struct CompoundV2InitializationVars {
+    uint baseRatePerYear;
+    uint multiplierPerYear;
+    uint jumpMultiplerPerYear;
+    uint kink;
+    uint initialExchangeRateMantissa;
+    uint8 cTokenDecimals;
+    uint8 ERC20Decimals;
+    uint256 uscdCollateralFactor;
+    uint256 borrowTokenCollateralFactor;
+    uint256 liquidationIncentive;
+    uint256 closeFactor;
+}
+
 /**
- * @title Instrumented Compound v2 for Exploring Toxic Liquidation Spirals
+ * @title Instrumented Compound v2
  * @author Lilyjjo
- * @notice This testing contract is setup to allow users to simulate different trading and price scenarios on Compound v2.
- * The function `findToxicLTVExternalLosses()` allows users to run toxic liquidation spirals with different setup
- * configurations and to compare the relative impacts of the configuration changes.
- * The file has three main sections:
- * - Functions to make interacting with the Compound setup easier
- * - Insight functions to print out the current state of the Compound setup
- * - Testing scenarios to show the behavior of Compound during different scenarios
+ * @notice This contract is setup to aid interactions with Compound V2 forks. It
+ * pulls some
  */
 contract CompoundWrapper is Test {
     SimplePriceOracle public oracle;
@@ -32,57 +41,129 @@ contract CompoundWrapper is Test {
     CErc20Immutable public cBorrowedToken;
     CErc20Immutable public cUSDC;
     BaseJumpRateModelV2 public interestModel;
-
-    // BaseJumpRateModelV2 Params, taken from: https://etherscan.io/address/0xD8EC56013EA119E7181d231E5048f90fBbe753c0
-    uint baseRatePerYear = 0;
-    uint multiplierPerYear = 40000000000000000;
-    uint jumpMultiplierPerYear = 1090000000000000000;
-    uint kink = 800000000000000000;
-
-    // Comptroller Params, taken from: // https://etherscan.io/address/0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B and https://etherscan.io/address/0x39AA39c021dfbaE8faC545936693aC917d5E7563
-    uint initialExchangeRateMantissa = 200000000000000;
-    uint8 cTokenDecimals = 8;
-
-    // Using 18 for all Mock ERC20s for simplicity
-    uint ERC20Decimals = 18;
-
-    // admin address of protocol
-    address admin;
-
-    uint256 uscdCollateralFactor; // lending token (TODO: rename?)
-    uint256 borrowTokenCollateralFactor;
-    uint256 liquidationIncentive;
-    uint256 closeFactor;
-
-    mapping(address => string) names;
-
     MockERC20 usdc;
     MockERC20 borrowToken;
 
-    /*****************************************
-     *  Functions to interact with Compound: *
-     *****************************************/
+    // admin address of protocol
+    address admin;
+    mapping(address => string) names;
+
+    /**
+     * @notice Populates non-important Compound V2 variables with standard values
+     * Comptroller Params taken from: https://etherscan.io/address/0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B and https://etherscan.io/address/0x39AA39c021dfbaE8faC545936693aC917d5E7563
+     * BaseJumpRateModelV2 Params taken from: https://etherscan.io/address/0xD8EC56013EA119E7181d231E5048f90fBbe753c0
+     */
+    function basicInitializationVars(
+        uint256 uscdCollateralFactor,
+        uint256 borrowTokenCollateralFactor,
+        uint256 liquidationIncentive,
+        uint256 closeFactor
+    ) public pure returns (CompoundV2InitializationVars memory vars) {
+        vars = CompoundV2InitializationVars(
+            0, // baseRatePerYear
+            40000000000000000, // multiplierPerYear
+            1090000000000000000, // jumpMultiplerPerYear
+            800000000000000000, // kink;
+            200000000000000, // initialExchangeRateMantissa;
+            8, // cTokenDecimals;
+            18, // ERC20Decimals;
+            uscdCollateralFactor,
+            borrowTokenCollateralFactor,
+            liquidationIncentive,
+            closeFactor
+        );
+    }
+
+    /**
+     * @notice Creates involved smart contracts and glues them together.
+     * Creates: Compound Comptroller, MockERC20s, cTokens for the ERC20s,
+     * Oralces for the cTokens, Interest rate model for the Comptroller.
+     * @param vars Variables for the setup that creators can choose.
+     */
+    function setUpComptrollerContracts(
+        CompoundV2InitializationVars memory vars
+    ) public {
+        admin = vm.addr(1000);
+        names[admin] = "Admin";
+
+        oracle = new SimplePriceOracle();
+
+        interestModel = new JumpRateModelV2(
+            vars.baseRatePerYear,
+            vars.multiplierPerYear,
+            vars.jumpMultiplerPerYear,
+            vars.kink,
+            admin
+        );
+
+        vm.startPrank(admin);
+
+        usdc = new MockERC20("USDC", "USDC", vars.ERC20Decimals);
+        borrowToken = new MockERC20("CRV", "CRV", vars.ERC20Decimals);
+
+        comptroller = new Comptroller();
+        comptroller._setPriceOracle(oracle);
+
+        cUSDC = new CErc20Immutable(
+            address(usdc),
+            comptroller,
+            interestModel,
+            vars.initialExchangeRateMantissa,
+            "Compound USD Coin",
+            "cUSCD",
+            vars.cTokenDecimals,
+            payable(admin)
+        );
+
+        cBorrowedToken = new CErc20Immutable(
+            address(borrowToken),
+            comptroller,
+            interestModel,
+            vars.initialExchangeRateMantissa,
+            "Compound Borrow Coin",
+            "cBorrowedToken",
+            vars.cTokenDecimals,
+            payable(admin)
+        );
+
+        comptroller._supportMarket(cUSDC);
+        comptroller._supportMarket(cBorrowedToken);
+
+        vm.stopPrank();
+    }
 
     /**
      * @notice Sets needed comptroller variables
-     * @dev Prices for tokens in Oracle need to be set beforehand
+     * @param cUSDCPrice Price to assign to USDC
+     * @param cBorrowTokenPrice Price to assign to BorrowToken
+     * @param protocolVars Variables used
      */
-    function setUpComptroller() public {
-        assert(oracle.getUnderlyingPrice(cUSDC) != 0);
-        assert(oracle.getUnderlyingPrice(cBorrowedToken) != 0);
+    function initializeComptroller(
+        uint256 cUSDCPrice,
+        uint256 cBorrowTokenPrice,
+        CompoundV2InitializationVars memory protocolVars
+    ) public {
+        // set up prices
+        oracle.setUnderlyingPrice(cUSDC, cUSDCPrice);
+        oracle.setUnderlyingPrice(cBorrowedToken, cBorrowTokenPrice);
 
         vm.startPrank(admin);
         uint success;
-        success = comptroller._setCloseFactor(closeFactor);
+        success = comptroller._setCloseFactor(protocolVars.closeFactor);
         assert(success == 0);
-        success = comptroller._setCollateralFactor(cUSDC, uscdCollateralFactor);
+        success = comptroller._setCollateralFactor(
+            cUSDC,
+            protocolVars.uscdCollateralFactor
+        );
         assert(success == 0);
         success = comptroller._setCollateralFactor(
             cBorrowedToken,
-            borrowTokenCollateralFactor
+            protocolVars.borrowTokenCollateralFactor
         );
         assert(success == 0);
-        success = comptroller._setLiquidationIncentive(liquidationIncentive);
+        success = comptroller._setLiquidationIncentive(
+            protocolVars.liquidationIncentive
+        );
         assert(success == 0);
         vm.stopPrank();
     }
@@ -140,13 +221,11 @@ contract CompoundWrapper is Test {
     /**
      * @notice Borrows cToken from the Compound setup for user
      * @param user The user who is borrowing
-     * @param coin Unused
      * @param cToken The target token to borrow
      * @param amount How much token to borrow
      */
     function borrow(
         address user,
-        MockERC20 coin,
         CErc20Immutable cToken,
         uint256 amount
     ) public {
@@ -248,10 +327,14 @@ contract CompoundWrapper is Test {
 
     /**
      *  @notice Returns the loan-to-value ratio for user.
-     *  @param user address of user to get LTV for
+     *  @param user Address of user to get LTV for
+     *  @param protocolVars Vars used to initialize the Compound // TODO: see if can pull in case initialization vars are changed during test run
      *  @return LTV scaled to 100_00 == 100%
      */
-    function getLTV(address user) public returns (uint256 LTV) {
+    function getLTV(
+        address user,
+        CompoundV2InitializationVars memory protocolVars
+    ) public returns (uint256 LTV) {
         uint256 cUSDCBalance = cUSDC.balanceOfUnderlying(user);
         uint256 cUSDCBorrowedBalance = cUSDC.borrowBalanceCurrent(user);
 
@@ -263,11 +346,11 @@ contract CompoundWrapper is Test {
 
         uint256 denominator = (cUSDCBalance *
             oracle.getUnderlyingPrice(cUSDC) *
-            uscdCollateralFactor) / 1 ether;
+            protocolVars.uscdCollateralFactor) / 1 ether;
         denominator +=
             (cBorrowedTokenBalance *
                 oracle.getUnderlyingPrice(cBorrowedToken) *
-                borrowTokenCollateralFactor) /
+                protocolVars.borrowTokenCollateralFactor) /
             1 ether;
         uint256 numerator = cBorrowedTokenBorrowedBalance *
             oracle.getUnderlyingPrice(cBorrowedToken);
@@ -291,10 +374,15 @@ contract CompoundWrapper is Test {
         console.log("  CRV borrows    : ", cBorrowedToken.totalBorrows());
     }
 
-    function printBalances(address user, string memory name) public {
+    function printUserBalances(
+        address user,
+        string memory name,
+        CompoundV2InitializationVars memory protocolVars
+    ) public {
         console.log("%s account snapshot:", name);
-        (uint err, uint liquidity, uint shortfall) = comptroller
-            .getAccountLiquidity(user);
+        (, uint liquidity, uint shortfall) = comptroller.getAccountLiquidity(
+            user
+        );
 
         uint256 usdcBalance = usdc.balanceOf(user);
         uint256 cUSDCBalance = cUSDC.balanceOfUnderlying(user);
@@ -307,7 +395,7 @@ contract CompoundWrapper is Test {
 
         uint256 denominator = (cBorrowedTokenBorrowedBalance *
             oracle.getUnderlyingPrice(cUSDC) *
-            uscdCollateralFactor) / 1 ether;
+            protocolVars.uscdCollateralFactor) / 1 ether;
         uint256 numerator = cBorrowedTokenBalance *
             oracle.getUnderlyingPrice(cBorrowedToken);
         uint256 LTV;
