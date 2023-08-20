@@ -333,7 +333,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportData {
                 borrowTokenNewPrice
             )
         );
-        exportDataRow(
+        exportTLSData(
+            "dataBank.csv",
             vars,
             SpiralResultVariables(
                 targetGains,

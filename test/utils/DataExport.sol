@@ -12,11 +12,16 @@ import "./TLSStructs.sol";
  * @notice Contract to hold logic for printing out a row of test data to a file
  */
 contract ExportData is Test {
-    function exportDataRow(
+    /**
+     * @notice Turns Toxic Liquidation Spiral config and result structs
+     * into a string of comma separated data, can be used in .CSV files
+     * @param configVars The configuration variables TLS test was run with
+     * @param resultVars The resulting state after the test compeletes
+     */
+    function createTLSDataString(
         SpiralConfigurationVariables memory configVars,
         SpiralResultVariables memory resultVars
-    ) public {
-        string memory data = "";
+    ) internal pure returns (string memory data) {
         data = string.concat(data, Strings.toString(configVars.targetTLTV));
         data = string.concat(data, ",");
         data = string.concat(
@@ -87,10 +92,33 @@ contract ExportData is Test {
             data,
             Strings.toString(resultVars.borrowTokenToxicPrice)
         );
+    }
 
-        string[] memory inputs = new string[](2);
+    /**
+     * @notice Attempts to append a string to a file
+     * @param filename The name of the file
+     * @param data The string of data to append to the file
+     */
+    function exportString(string memory filename, string memory data) internal {
+        string[] memory inputs = new string[](3);
         inputs[0] = "./add_data_script.sh";
         inputs[1] = data;
+        inputs[2] = filename;
         vm.ffi(inputs);
+    }
+
+    /**
+     * @notice Exports a row of Toxic Liquidity Spiral data to a file
+     * @param fileName The name of the file to append the data to
+     * @param configVars The configuration variables TLS test was run with
+     * @param resultVars The resulting state after the test compeletes
+     */
+    function exportTLSData(
+        string memory fileName,
+        SpiralConfigurationVariables memory configVars,
+        SpiralResultVariables memory resultVars
+    ) public {
+        string memory data = createTLSDataString(configVars, resultVars);
+        exportString(fileName, data);
     }
 }

@@ -1,1 +1,1 @@
-echo $1 >> dataBank.csv
+echo $1 >> $2
