@@ -49,13 +49,9 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
      */
     function setUpUserAccounts() internal {
         userA = vm.addr(1001);
-        names[userA] = "UserA";
         userB = vm.addr(1002);
-        names[userB] = "UserB";
         userC = vm.addr(1003);
-        names[userC] = "UserC";
         whale = vm.addr(1004);
-        names[whale] = "Whale";
 
         addToMarkets(userA);
         addToMarkets(userB);
@@ -251,7 +247,6 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                     (borrowTokenNewPrice);
             }
         }
-        console.log("loops: ", liquidationLoops);
 
         // replace actual price to reflect gains/losses more clearly on open market
         oracle.setUnderlyingPrice(cBorrowedToken, vars.borrowTokenStartPrice);

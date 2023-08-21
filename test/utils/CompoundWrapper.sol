@@ -34,8 +34,8 @@ struct CompoundV2InitializationVars {
 /**
  * @title Instrumented Compound v2
  * @author Lilyjjo
- * @notice This contract is setup to aid interactions with Compound V2 forks. It
- * pulls some
+ * @notice This contract is set up to aid interactions with Compound V2 forks. It
+ * provides for a 2 market setup with ease-of-use wrapper and view functions.
  */
 contract CompoundWrapper is Test {
     SimplePriceOracle public oracle;
@@ -46,17 +46,21 @@ contract CompoundWrapper is Test {
     MockERC20 usdc;
     MockERC20 borrowToken;
 
-    // admin address of protocol
     address admin;
-    mapping(address => string) names;
 
     /**
      * @notice Populates non-important Compound V2 variables with standard values
      * Comptroller Params taken from: https://etherscan.io/address/0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B and https://etherscan.io/address/0x39AA39c021dfbaE8faC545936693aC917d5E7563
      * BaseJumpRateModelV2 Params taken from: https://etherscan.io/address/0xD8EC56013EA119E7181d231E5048f90fBbe753c0
+     * @param usdcCollateralFactor Collateral Factor in Comptroller for USDC token
+     * @param borrowTokenCollateralFactor Collateral Factor in Comptroller for Borrowed token
+     * @param liquidationIncentive Liquidation Incentive in Comptroller
+     * @param closeFactor Close Factor in Comptroller
+     * @param cUSDCStartPrice Price to initialize USDC to in Oracle
+     * @param cBorrowTokenStartPrice Price to initialize Borrow Token to in Oracle
      */
     function basicInitializationVars(
-        uint256 uscdCollateralFactor,
+        uint256 usdcCollateralFactor,
         uint256 borrowTokenCollateralFactor,
         uint256 liquidationIncentive,
         uint256 closeFactor,
@@ -71,7 +75,7 @@ contract CompoundWrapper is Test {
             200000000000000, // initialExchangeRateMantissa;
             8, // cTokenDecimals;
             18, // ERC20Decimals;
-            uscdCollateralFactor,
+            usdcCollateralFactor,
             borrowTokenCollateralFactor,
             liquidationIncentive,
             closeFactor,
@@ -84,28 +88,27 @@ contract CompoundWrapper is Test {
      * @notice Creates involved smart contracts and glues them together.
      * Creates: Compound Comptroller, MockERC20s, cTokens for the ERC20s,
      * Oralces for the cTokens, Interest rate model for the Comptroller.
-     * @param vars Variables for the setup that creators can choose.
+     * @param protocolVars Variables that test writers can choose
      */
     function setUpComptrollerContracts(
-        CompoundV2InitializationVars memory vars
+        CompoundV2InitializationVars memory protocolVars
     ) public {
         admin = vm.addr(1000);
-        names[admin] = "Admin";
 
         oracle = new SimplePriceOracle();
 
         interestModel = new JumpRateModelV2(
-            vars.baseRatePerYear,
-            vars.multiplierPerYear,
-            vars.jumpMultiplerPerYear,
-            vars.kink,
+            protocolVars.baseRatePerYear,
+            protocolVars.multiplierPerYear,
+            protocolVars.jumpMultiplerPerYear,
+            protocolVars.kink,
             admin
         );
 
         vm.startPrank(admin);
 
-        usdc = new MockERC20("USDC", "USDC", vars.ERC20Decimals);
-        borrowToken = new MockERC20("CRV", "CRV", vars.ERC20Decimals);
+        usdc = new MockERC20("USDC", "USDC", protocolVars.ERC20Decimals);
+        borrowToken = new MockERC20("CRV", "CRV", protocolVars.ERC20Decimals);
 
         comptroller = new Comptroller();
         comptroller._setPriceOracle(oracle);
@@ -114,10 +117,10 @@ contract CompoundWrapper is Test {
             address(usdc),
             comptroller,
             interestModel,
-            vars.initialExchangeRateMantissa,
+            protocolVars.initialExchangeRateMantissa,
             "Compound USD Coin",
             "cUSCD",
-            vars.cTokenDecimals,
+            protocolVars.cTokenDecimals,
             payable(admin)
         );
 
@@ -125,34 +128,37 @@ contract CompoundWrapper is Test {
             address(borrowToken),
             comptroller,
             interestModel,
-            vars.initialExchangeRateMantissa,
+            protocolVars.initialExchangeRateMantissa,
             "Compound Borrow Coin",
             "cBorrowedToken",
-            vars.cTokenDecimals,
+            protocolVars.cTokenDecimals,
             payable(admin)
         );
 
         comptroller._supportMarket(cUSDC);
         comptroller._supportMarket(cBorrowedToken);
 
-        oracle.setUnderlyingPrice(cUSDC, vars.cUSDCStartPrice);
-        oracle.setUnderlyingPrice(cBorrowedToken, vars.cBorrowTokenStartPrice);
+        oracle.setUnderlyingPrice(cUSDC, protocolVars.cUSDCStartPrice);
+        oracle.setUnderlyingPrice(
+            cBorrowedToken,
+            protocolVars.cBorrowTokenStartPrice
+        );
 
         uint success;
-        success = comptroller._setCloseFactor(vars.closeFactor);
+        success = comptroller._setCloseFactor(protocolVars.closeFactor);
         assert(success == 0);
         success = comptroller._setCollateralFactor(
             cUSDC,
-            vars.uscdCollateralFactor
+            protocolVars.uscdCollateralFactor
         );
         assert(success == 0);
         success = comptroller._setCollateralFactor(
             cBorrowedToken,
-            vars.borrowTokenCollateralFactor
+            protocolVars.borrowTokenCollateralFactor
         );
         assert(success == 0);
         success = comptroller._setLiquidationIncentive(
-            vars.liquidationIncentive
+            protocolVars.liquidationIncentive
         );
         assert(success == 0);
 
@@ -174,7 +180,7 @@ contract CompoundWrapper is Test {
     }
 
     /**
-     * @notice Mints ERC20 for user
+     * @notice Mints ERC20 for user.
      * @param user The address of user
      * @param coin The target ERC20
      * @param amount The amount to mint
@@ -189,8 +195,8 @@ contract CompoundWrapper is Test {
     }
 
     /**
-     * @notice Mints ERC20 and supplies it as collateral in associated CToken contract for user
-     * @param user The user to mint and supply for\
+     * @notice Mints ERC20 and supplies it as collateral in associated CToken contract for user.
+     * @param user The user to mint and supply for
      * @param coin The underlying ERC20
      * @param cToken The associated CToken for the ERC20
      * @param amount The amound of token to mint/supply
@@ -210,7 +216,7 @@ contract CompoundWrapper is Test {
     }
 
     /**
-     * @notice Borrows cToken from the Compound setup for user
+     * @notice Borrows cToken from the Compound setup for user.
      * @param user The user who is borrowing
      * @param cToken The target token to borrow
      * @param amount How much token to borrow
@@ -226,8 +232,7 @@ contract CompoundWrapper is Test {
     }
 
     /**
-     * @notice Swaps value of one ERC20 for the same value of another ERC20
-     * @dev Make sure you set the asset prices in the oracles
+     * @notice Swaps value of one ERC20 for the same value of another ERC20.
      * @param user The user holding the tokens
      * @param inToken The token to be swapped in
      * @param outToken The token to be swapped out
@@ -252,7 +257,7 @@ contract CompoundWrapper is Test {
     }
 
     /**
-     * @notice Repays a user's borrow
+     * @notice Repays a user's borrow.
      * @param user The user who is repaying
      * @param coin The ERC20 token being repaid
      * @param cToken The associated cToken to the ERC20
@@ -272,7 +277,7 @@ contract CompoundWrapper is Test {
     }
 
     /**
-     * @notice Removes a user's collateral from Compound Pool
+     * @notice Removes a user's collateral from Compound Pool.
      * @param user The user's account
      * @param cToken The cToken pool of the asset to reclaim
      * @param amount How much of asset to remove
@@ -288,7 +293,7 @@ contract CompoundWrapper is Test {
     }
 
     /**
-     * @notice Has liquidator liquidate target (pays borrow token to receive cToken of collateral)
+     * @notice Has liquidator liquidate target (pays borrow token to receive cToken of collateral).
      * @param liquidator Account performing liquidation, needs to hold borrowToken
      * @param target Account being liquidated, needs to be liquidatable
      * @param cTokenCollateral The cToken that the liquidator will receive for performing the liquidation
@@ -357,6 +362,9 @@ contract CompoundWrapper is Test {
      *          Insight Functions:          *
      ****************************************/
 
+    /**
+     * @notice Prints Comptroller's CToken's reserves and borrows.
+     */
     function printPoolBalances() public view {
         console.log("Pool balances: ");
         console.log("  USCD reserves  : ", cUSDC.getCash());
@@ -365,6 +373,11 @@ contract CompoundWrapper is Test {
         console.log("  CRV borrows    : ", cBorrowedToken.totalBorrows());
     }
 
+    /**
+     * @notice Prints an account's Comptroller/CToken/ERC20 balances.
+     * @param user Account to print
+     * @param name Name for account to print
+     */
     function printUserBalances(address user, string memory name) public {
         console.log("%s account snapshot:", name);
         (, uint liquidity, uint shortfall) = comptroller.getAccountLiquidity(
