@@ -27,6 +27,8 @@ struct CompoundV2InitializationVars {
     uint256 borrowTokenCollateralFactor;
     uint256 liquidationIncentive;
     uint256 closeFactor;
+    uint cUSDCStartPrice;
+    uint cBorrowTokenStartPrice;
 }
 
 /**
@@ -57,7 +59,9 @@ contract CompoundWrapper is Test {
         uint256 uscdCollateralFactor,
         uint256 borrowTokenCollateralFactor,
         uint256 liquidationIncentive,
-        uint256 closeFactor
+        uint256 closeFactor,
+        uint256 cUSDCStartPrice,
+        uint256 cBorrowTokenStartPrice
     ) public pure returns (CompoundV2InitializationVars memory vars) {
         vars = CompoundV2InitializationVars(
             0, // baseRatePerYear
@@ -70,7 +74,9 @@ contract CompoundWrapper is Test {
             uscdCollateralFactor,
             borrowTokenCollateralFactor,
             liquidationIncentive,
-            closeFactor
+            closeFactor,
+            cUSDCStartPrice,
+            cBorrowTokenStartPrice
         );
     }
 
@@ -129,42 +135,27 @@ contract CompoundWrapper is Test {
         comptroller._supportMarket(cUSDC);
         comptroller._supportMarket(cBorrowedToken);
 
-        vm.stopPrank();
-    }
+        oracle.setUnderlyingPrice(cUSDC, vars.cUSDCStartPrice);
+        oracle.setUnderlyingPrice(cBorrowedToken, vars.cBorrowTokenStartPrice);
 
-    /**
-     * @notice Sets needed comptroller variables
-     * @param cUSDCPrice Price to assign to USDC
-     * @param cBorrowTokenPrice Price to assign to BorrowToken
-     * @param protocolVars Variables used
-     */
-    function initializeComptroller(
-        uint256 cUSDCPrice,
-        uint256 cBorrowTokenPrice,
-        CompoundV2InitializationVars memory protocolVars
-    ) public {
-        // set up prices
-        oracle.setUnderlyingPrice(cUSDC, cUSDCPrice);
-        oracle.setUnderlyingPrice(cBorrowedToken, cBorrowTokenPrice);
-
-        vm.startPrank(admin);
         uint success;
-        success = comptroller._setCloseFactor(protocolVars.closeFactor);
+        success = comptroller._setCloseFactor(vars.closeFactor);
         assert(success == 0);
         success = comptroller._setCollateralFactor(
             cUSDC,
-            protocolVars.uscdCollateralFactor
+            vars.uscdCollateralFactor
         );
         assert(success == 0);
         success = comptroller._setCollateralFactor(
             cBorrowedToken,
-            protocolVars.borrowTokenCollateralFactor
+            vars.borrowTokenCollateralFactor
         );
         assert(success == 0);
         success = comptroller._setLiquidationIncentive(
-            protocolVars.liquidationIncentive
+            vars.liquidationIncentive
         );
         assert(success == 0);
+
         vm.stopPrank();
     }
 

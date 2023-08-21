@@ -20,11 +20,11 @@ import "./utils/TLSStructs.sol";
 import "./utils/DataExport.sol";
 
 /**
- * @title Test contract for running Toxic Liquidity Spirals on a Compound V2 Fork
+ * @title Test contract for running Toxic Liquidity Spirals on a Compound V2 Fork.
  * @author Lilyjjo
  * @notice This testing contract is setup to allow users to simulate different trading and price scenarios on Compound v2.
  * The function `findToxicLTVExternalLosses()` allows users to run toxic liquidation spirals with different setup
- * configurations and to compare the relative impacts of the configuration changes.
+ * configurations and to compare the relative impacts of the configuration changes with outputs to a CSV file.
  */
 contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
     // Accounts for use in test writing
@@ -112,12 +112,11 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 855000000000000000, // uscdCollateralFactor
                 550000000000000000, // borrowTokenCollateralFactor
                 1080000000000000000, // liquidationIncentive
-                500000000000000000 // closeFactor
+                500000000000000000, // closeFactor
+                1 ether, // cUSCDStartPrice
+                1 ether // cBorrowTokenStartPrice
             );
-
         setUpTest(protocolVars);
-        // set comptroller variables
-        initializeComptroller(1 ether, 1 ether, protocolVars);
 
         // set up whale reserves
         mintFundsAndCollateral(whale, usdc, cUSDC, 10_000);
@@ -166,7 +165,9 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 vars.uscdCollateralFactor,
                 vars.borrowCollateralFactor,
                 vars.liquidationIncentive,
-                vars.closeFactor
+                vars.closeFactor,
+                vars.usdcPrice,
+                vars.borrowTokenStartPrice
             );
 
         setUpTest(protocolVars);
@@ -177,12 +178,6 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 (1 * 10000 * 1 ether * 1 ether) /
                     (vars.liquidationIncentive * vars.uscdCollateralFactor),
             "targetTLTV need to be toxic"
-        );
-
-        initializeComptroller(
-            vars.usdcPrice,
-            vars.borrowTokenStartPrice,
-            protocolVars
         );
 
         // set up whale reserves, buying both usdc and borrowed asset
