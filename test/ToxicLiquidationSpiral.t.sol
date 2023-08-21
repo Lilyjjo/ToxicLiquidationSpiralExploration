@@ -35,6 +35,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
 
     /**
      * @notice Sets up a clean Compound V2 fork per test run.
+     * @param protocolVars Chosen variables for test's Compound instantiation.
      */
     function setUpTest(
         CompoundV2InitializationVars memory protocolVars
@@ -68,16 +69,15 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
      * @param resultVars The resulting state after the test compeletes
      */
     function interpretGains(
-        CompoundV2InitializationVars memory protocolVars,
         SpiralConfigurationVariables memory configVars,
         SpiralResultVariables memory resultVars
     ) public {
         // print general account state
         console.log("Target Toxic LTV: ", configVars.targetTLTV);
         printPoolBalances();
-        printUserBalances(whale, "Whale", protocolVars);
-        printUserBalances(userA, "Target", protocolVars);
-        printUserBalances(userB, "Attacker", protocolVars);
+        printUserBalances(whale, "Whale");
+        printUserBalances(userA, "Target");
+        printUserBalances(userB, "Attacker");
 
         // print gains/losses
         console.log("Gains/Loss of target: ");
@@ -197,8 +197,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
 
         borrow(userA, cBorrowedToken, borrowAmount);
         require(
-            getLTV(userA, protocolVars) < 8010 &&
-                getLTV(userA, protocolVars) > 7090,
+            getLTV(userA) < 8010 && getLTV(userA) > 7090,
             "inital LTV of target user is outside target range"
         );
 
@@ -215,8 +214,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
 
         // see target TLTV is hit for target account with .001 wiggle room
         require(
-            getLTV(userA, protocolVars) < vars.targetTLTV + 10 &&
-                getLTV(userA, protocolVars) > vars.targetTLTV - 10,
+            getLTV(userA) < vars.targetTLTV + 10 &&
+                getLTV(userA) > vars.targetTLTV - 10,
             "realized target TLTV wrong"
         );
 
@@ -224,7 +223,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
         uint256 closingAmount = (vars.closeFactor *
             cBorrowedToken.borrowBalanceCurrent(userA)) / 1 ether;
         uint256 liquidationLoops = 0;
-        while (closingAmount > 0 && getLTV(userA, protocolVars) > 0) {
+        while (closingAmount > 0 && getLTV(userA) > 0) {
             liquidate(
                 userB,
                 userA,
@@ -287,7 +286,6 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             int256(vars.startBorrowAmountWhale);
 
         interpretGains(
-            protocolVars,
             vars,
             SpiralResultVariables(
                 targetGains,

@@ -319,13 +319,9 @@ contract CompoundWrapper is Test {
     /**
      *  @notice Returns the loan-to-value ratio for user.
      *  @param user Address of user to get LTV for
-     *  @param protocolVars Vars used to initialize the Compound // TODO: see if can pull in case initialization vars are changed during test run
      *  @return LTV scaled to 100_00 == 100%
      */
-    function getLTV(
-        address user,
-        CompoundV2InitializationVars memory protocolVars
-    ) public returns (uint256 LTV) {
+    function getLTV(address user) public returns (uint256 LTV) {
         uint256 cUSDCBalance = cUSDC.balanceOfUnderlying(user);
         uint256 cUSDCBorrowedBalance = cUSDC.borrowBalanceCurrent(user);
 
@@ -334,14 +330,18 @@ contract CompoundWrapper is Test {
         );
         uint256 cBorrowedTokenBorrowedBalance = cBorrowedToken
             .borrowBalanceCurrent(user);
+        (, uint uscdCollateralFactor, ) = comptroller.markets(address(cUSDC));
+        (, uint borrowedTokenCollateralFactor, ) = comptroller.markets(
+            address(cBorrowedToken)
+        );
 
         uint256 denominator = (cUSDCBalance *
             oracle.getUnderlyingPrice(cUSDC) *
-            protocolVars.uscdCollateralFactor) / 1 ether;
+            uscdCollateralFactor) / 1 ether;
         denominator +=
             (cBorrowedTokenBalance *
                 oracle.getUnderlyingPrice(cBorrowedToken) *
-                protocolVars.borrowTokenCollateralFactor) /
+                borrowedTokenCollateralFactor) /
             1 ether;
         uint256 numerator = cBorrowedTokenBorrowedBalance *
             oracle.getUnderlyingPrice(cBorrowedToken);
@@ -365,11 +365,7 @@ contract CompoundWrapper is Test {
         console.log("  CRV borrows    : ", cBorrowedToken.totalBorrows());
     }
 
-    function printUserBalances(
-        address user,
-        string memory name,
-        CompoundV2InitializationVars memory protocolVars
-    ) public {
+    function printUserBalances(address user, string memory name) public {
         console.log("%s account snapshot:", name);
         (, uint liquidity, uint shortfall) = comptroller.getAccountLiquidity(
             user
@@ -384,9 +380,11 @@ contract CompoundWrapper is Test {
         uint256 cBorrowedTokenBorrowedBalance = cBorrowedToken
             .borrowBalanceCurrent(user);
 
+        (, uint uscdCollateralFactor, ) = comptroller.markets(address(cUSDC));
+
         uint256 denominator = (cBorrowedTokenBorrowedBalance *
             oracle.getUnderlyingPrice(cUSDC) *
-            protocolVars.uscdCollateralFactor) / 1 ether;
+            uscdCollateralFactor) / 1 ether;
         uint256 numerator = cBorrowedTokenBalance *
             oracle.getUnderlyingPrice(cBorrowedToken);
         uint256 LTV;
