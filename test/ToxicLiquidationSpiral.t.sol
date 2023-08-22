@@ -173,7 +173,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             vars.targetTLTV >=
                 (1 * 10000 * 1 ether * 1 ether) /
                     (vars.liquidationIncentive * vars.uscdCollateralFactor),
-            "targetTLTV need to be toxic"
+            "targetTLTV needs to be toxic"
         );
 
         // set up whale reserves, buying both usdc and borrowed asset
@@ -306,7 +306,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
     /**
      * @notice Test to show behavior of Toxic Liquidity Spiral when prices are initially equal
      */
-    function testTLTVEqualPrice() public {
+    function testTLTVEqualPriceHardcoded() public {
         findToxicLTVExternalLosses(
             SpiralConfigurationVariables(
                 13500, // Target Toxic Liquidity Threshold
@@ -320,6 +320,52 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 10_000, // Starting USDC Amount Attacker
                 20_000, // Starting USDC Amount Whale
                 20_000 // Starting Borrow Amount Whale
+            )
+        );
+    }
+
+    /**
+     * @notice Example test showing how to utilize fuzzing. The results of the
+     * fuzz runs will be exported into the 'dataBank.csv' file for post-run
+     * analysis.
+     * @param liquidationIncentive Variable to fuzz.
+     */
+    function testFuzz_ExampleTLTV(uint liquidationIncentive) public {
+        vm.assume(liquidationIncentive < 1e18 && liquidationIncentive > 0);
+
+        uint targetToxicLiquidityThreshold = 13500;
+        //uint liquidationIncentive = 1100000000000000000;
+        uint closeFactor = 500000000000000000;
+        uint usdcCollateralFactor = 855000000000000000;
+        uint borrowedTokenCollateralFactor = 550000000000000000;
+        uint usdcStartPrice = 1 ether;
+        uint borredTokenStartPrice = 1 ether;
+        uint startingUSDCAmountTarget = 10_000;
+        uint startingUSDCAmountAttacker = 10_000;
+        uint startingUSDCAmountWhale = 20_000;
+        uint startingBorredTokenAmountWhale = 20_000;
+
+        // TLTV logic will not work if this is not true
+        vm.assume(
+            targetToxicLiquidityThreshold >=
+                (1 * 10000 * 1 ether * 1 ether) /
+                    (liquidationIncentive * usdcCollateralFactor)
+        );
+
+        // run actual test
+        findToxicLTVExternalLosses(
+            SpiralConfigurationVariables(
+                targetToxicLiquidityThreshold, // Target Toxic Liquidity Threshold
+                liquidationIncentive, // Liquidation Incentive
+                closeFactor, // Close Factor
+                usdcCollateralFactor, // USDC Collateral Factor
+                borrowedTokenCollateralFactor, // Borrow Collateral Factor
+                usdcStartPrice, // USDC Start Price
+                borredTokenStartPrice, // Borrow Start Price
+                startingUSDCAmountTarget, // Starting USDC Amount Target
+                startingUSDCAmountAttacker, // Starting USDC Amount Attacker
+                startingUSDCAmountWhale, // Starting USDC Amount Whale
+                startingBorredTokenAmountWhale // Starting Borrow Amount Whale
             )
         );
     }

@@ -11,12 +11,13 @@ This was [first observed](https://arxiv.org/pdf/2212.07306.pdf#:~:text=3%20Toxic
 Currently this repo contains an unmodified Compound v2 fork setup to mimic the behavior of the 2023 0VIX attack. It's a WIP. The file `test/ToxicLiquidationSpiral.t.sol` contains the setup and can be run with `forge test -vv`.
 
 
-The suite currently runs two tests on the Compound fork:
-- A short demonstrating that the setup is working 
-- A toxic liquidation spiral attack similar to the 0VIX attack
+The suite currently runs three tests on the Compound fork:
+- A short example demonstrating that the setup is working 
+- A hardcoded toxic liquidation spiral attack similar to the 0VIX attack
+- An example of a fuzzing test which shows the effects of changing the liquidation incentive on the protocol on the total percentage of funds stolen
 
 
 Results for tests ran with the 'findToxicLTVExternalLosses()' function export the test results to a CSV file that can be opened with Google Sheets or Excel for further analysis. The idea is that you'd run a fuzzer and see the range of behaviors (is a WIP). A clean data header can be found at `dataHeaderNoData.csv` and the expected output filename is `dataBank.csv`. The script used to move the data is called `add_data_script.sh` and assumes a unix-like machine. Window users will have to modify. 
 
 
-The testing suite is setup to allow more tests to be added. 
+The testing suite is setup to allow more tests to be added and more will be added as I have the time to work on this. 
