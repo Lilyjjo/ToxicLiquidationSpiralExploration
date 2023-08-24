@@ -280,6 +280,18 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
         int whaleBorrowGains = int256(borrowToken.balanceOf(whale)) -
             int256(vars.startBorrowAmountWhale);
 
+        // combine whale gains in terms of usdc for easier analysis
+        int whaleTotalGains = whaleUSDCGains +
+            ((whaleBorrowGains * int(vars.borrowTokenStartPrice)) /
+                int(vars.usdcPrice));
+
+        // compute percentage lost of whale's funds (in basis points)
+        uint whaleTotalInitialFunds = vars.startUSDCAmountWhale +
+            ((vars.startBorrowAmountWhale * vars.borrowTokenStartPrice) /
+                vars.usdcPrice);
+        int whalePercentLost = (10_000 * whaleTotalGains) /
+            int(whaleTotalInitialFunds);
+
         interpretGains(
             vars,
             SpiralResultVariables(
@@ -287,6 +299,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 attackerGains,
                 whaleUSDCGains,
                 whaleBorrowGains,
+                whaleTotalGains,
+                whalePercentLost,
                 borrowTokenNewPrice,
                 liquidationLoops
             )
@@ -299,6 +313,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 attackerGains,
                 whaleUSDCGains,
                 whaleBorrowGains,
+                whaleTotalGains,
+                whalePercentLost,
                 borrowTokenNewPrice,
                 liquidationLoops
             )
