@@ -22,76 +22,67 @@ contract ExportDataUtil is Test {
         SpiralConfigurationVariables memory configVars,
         SpiralResultVariables memory resultVars
     ) internal pure returns (string memory data) {
-        data = string.concat(data, Strings.toString(configVars.targetTLTV));
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(configVars.liquidationIncentive)
-        );
-        data = string.concat(data, ",");
-        data = string.concat(data, Strings.toString(configVars.closeFactor));
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(configVars.uscdCollateralFactor)
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(configVars.borrowCollateralFactor)
-        );
-        data = string.concat(data, ",");
-        data = string.concat(data, Strings.toString(configVars.usdcPrice));
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(configVars.borrowTokenStartPrice)
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(configVars.startUSDCAmountTarget)
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(configVars.startUSDCAmountAttacker)
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(configVars.startUSDCAmountWhale)
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(configVars.startBorrowAmountWhale)
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(uint(resultVars.gainsTarget * -1))
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(uint(resultVars.gainsAttacker))
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(uint(resultVars.gainsWhaleUSDC))
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(uint(resultVars.gainsWhaleBorrow * -1))
-        );
-        data = string.concat(data, ",");
-        data = string.concat(
-            data,
-            Strings.toString(resultVars.borrowTokenToxicPrice)
-        );
+        data = concatUint256(data, configVars.targetTLTV, false);
+        data = concatUint256(data, configVars.liquidationIncentive, true);
+        data = concatUint256(data, configVars.closeFactor, true);
+        data = concatUint256(data, configVars.uscdCollateralFactor, true);
+        data = concatUint256(data, configVars.borrowCollateralFactor, true);
+        data = concatUint256(data, configVars.usdcPrice, true);
+        data = concatUint256(data, configVars.borrowTokenStartPrice, true);
+        data = concatUint256(data, configVars.startUSDCAmountTarget, true);
+        data = concatUint256(data, configVars.startUSDCAmountAttacker, true);
+        data = concatUint256(data, configVars.startUSDCAmountWhale, true);
+        data = concatUint256(data, configVars.startBorrowAmountWhale, true);
+        data = concatInt256(data, resultVars.gainsTarget, true);
+        data = concatInt256(data, resultVars.gainsAttacker, true);
+        data = concatInt256(data, resultVars.gainsWhaleUSDC, true);
+        data = concatInt256(data, resultVars.gainsWhaleBorrow, true);
+        data = concatUint256(data, resultVars.borrowTokenToxicPrice, true);
+    }
+
+    /**
+     * @notice Appends a piece of int data to a string
+     * @param data The string to append the data to
+     * @param additionalData The new data to add to the string
+     * @param appendComma If a comma should be appended to the front of the new data
+     */
+    function concatInt256(
+        string memory data,
+        int additionalData,
+        bool appendComma
+    ) internal pure returns (string memory result) {
+        string memory additionalDataString;
+        if (additionalData < 0) {
+            additionalDataString = string.concat(
+                "-",
+                Strings.toString(uint(additionalData * -1))
+            );
+        } else {
+            additionalDataString = Strings.toString(uint(additionalData));
+        }
+        if (appendComma) {
+            result = ",";
+        }
+        result = string.concat(result, additionalDataString);
+        result = string.concat(data, result);
+    }
+
+    /**
+     * @notice Appends a piece of uint data to a string
+     * @param data The string to append the data to
+     * @param additionalData The new data to add to the string
+     * @param appendComma If a comma should be appended to the front of the new data
+     */
+    function concatUint256(
+        string memory data,
+        uint additionalData,
+        bool appendComma
+    ) internal pure returns (string memory result) {
+        if (appendComma) {
+            result = ",";
+        }
+        result = string.concat(result, Strings.toString(additionalData));
+        result = string.concat(data, result);
     }
 
     /**
