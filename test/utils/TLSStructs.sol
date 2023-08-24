@@ -21,4 +21,5 @@ struct SpiralResultVariables {
     int gainsWhaleUSDC;
     int gainsWhaleBorrow;
     uint borrowTokenToxicPrice;
+    uint liquidationLoops;
 }

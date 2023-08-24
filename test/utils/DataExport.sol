@@ -38,6 +38,7 @@ contract ExportDataUtil is Test {
         data = concatInt256(data, resultVars.gainsWhaleUSDC, true);
         data = concatInt256(data, resultVars.gainsWhaleBorrow, true);
         data = concatUint256(data, resultVars.borrowTokenToxicPrice, true);
+        data = concatUint256(data, resultVars.liquidationLoops, true);
     }
 
     /**

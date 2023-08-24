@@ -287,7 +287,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 attackerGains,
                 whaleUSDCGains,
                 whaleBorrowGains,
-                borrowTokenNewPrice
+                borrowTokenNewPrice,
+                liquidationLoops
             )
         );
         exportTLSData(
@@ -298,7 +299,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 attackerGains,
                 whaleUSDCGains,
                 whaleBorrowGains,
-                borrowTokenNewPrice
+                borrowTokenNewPrice,
+                liquidationLoops
             )
         );
     }
