@@ -241,6 +241,9 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                         vars.usdcPrice *
                         cUSDC.exchangeRateStored()) /
                     (protocolVars.liquidationIncentive * borrowTokenNewPrice);
+                if (closingAmount == 0) {
+                    break;
+                }
             }
             liquidate(
                 userB,
@@ -352,7 +355,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 20_000 // Starting Borrow Amount Whale
             )
         );
-    }
+    } // command: forge test -vv -m testTLTVEqualPriceHardcoded
 
     /**
      * @notice Example test showing how to utilize fuzzing. The results of the
@@ -410,7 +413,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
         uint24 targetToxicLiquidityThreshold
     ) public {
         vm.assume(
-            targetToxicLiquidityThreshold < 1e18 &&
+            targetToxicLiquidityThreshold < 2e18 &&
                 targetToxicLiquidityThreshold > 0
         );
 
@@ -449,5 +452,5 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 startingBorredTokenAmountWhale // Starting Borrow Amount Whale
             )
         );
-    }
+    } // command: forge test -vv -m testFuzz_target
 }
