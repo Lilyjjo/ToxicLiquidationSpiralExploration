@@ -93,6 +93,12 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             ((resultVars.gainsWhaleBorrow * int(configVars.usdcPrice)) /
                 int(configVars.borrowTokenStartPrice));
         console.logInt(lossWhaleCombined);
+        console.log("Total percent loss whale: ");
+        console.logInt(resultVars.whalePercentLost);
+        console.log(
+            "Percent price raised of borrow token: %d",
+            resultVars.borrowTokenPriceIncreasePercent
+        );
     }
 
     /*****************************************
@@ -216,48 +222,50 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             "realized target TLTV wrong"
         );
 
-        // loop with maximum closing factor to liquidate
-        uint256 closingAmount = (vars.closeFactor *
-            cBorrowedToken.borrowBalanceCurrent(userA)) / 1 ether;
-
         uint256 liquidationLoops = 0;
 
-        while (closingAmount > 0 && getLTV(userA) > 0) {
-            uint256 seizeTokens = (closingAmount *
-                protocolVars.liquidationIncentive *
-                borrowTokenNewPrice) /
-                (vars.usdcPrice * cUSDC.exchangeRateStored());
-            if (seizeTokens > cUSDC.balanceOf(userA)) {
-                // closingAmount is based on userA's borrow balance, but userA's
-                // collateral can be too low to cover the liquidation reward.
-                if (cUSDC.balanceOfUnderlying(userA) < 10) {
-                    // Too small to try to claim, quit liquidation
-                    break;
+        {
+            // loop with maximum closing factor to liquidate
+            uint256 closingAmount = (vars.closeFactor *
+                cBorrowedToken.borrowBalanceCurrent(userA)) / 1 ether;
+            while (closingAmount > 0 && getLTV(userA) > 0) {
+                uint256 seizeTokens = (closingAmount *
+                    protocolVars.liquidationIncentive *
+                    borrowTokenNewPrice) /
+                    (vars.usdcPrice * cUSDC.exchangeRateStored());
+                if (seizeTokens > cUSDC.balanceOf(userA)) {
+                    // closingAmount is based on userA's borrow balance, but userA's
+                    // collateral can be too low to cover the liquidation reward.
+                    if (cUSDC.balanceOfUnderlying(userA) < 10) {
+                        // Too small to try to claim, quit liquidation
+                        break;
+                    }
+                    // This re-calculates the closingAmount to not revert on over-seizing
+                    // collateral.
+                    closingAmount =
+                        (cUSDC.balanceOf(userA) *
+                            vars.usdcPrice *
+                            cUSDC.exchangeRateStored()) /
+                        (protocolVars.liquidationIncentive *
+                            borrowTokenNewPrice);
+                    if (closingAmount == 0) {
+                        break;
+                    }
                 }
-                // This re-calculates the closingAmount to not revert on over-seizing
-                // collateral.
+                liquidate(
+                    userB,
+                    userA,
+                    cUSDC,
+                    cBorrowedToken,
+                    borrowToken,
+                    closingAmount
+                );
                 closingAmount =
-                    (cUSDC.balanceOf(userA) *
-                        vars.usdcPrice *
-                        cUSDC.exchangeRateStored()) /
-                    (protocolVars.liquidationIncentive * borrowTokenNewPrice);
-                if (closingAmount == 0) {
-                    break;
-                }
+                    (vars.closeFactor *
+                        cBorrowedToken.borrowBalanceCurrent(userA)) /
+                    1 ether; // amount of borrow tokens
+                liquidationLoops++;
             }
-            liquidate(
-                userB,
-                userA,
-                cUSDC,
-                cBorrowedToken,
-                borrowToken,
-                closingAmount
-            );
-            closingAmount =
-                (vars.closeFactor *
-                    cBorrowedToken.borrowBalanceCurrent(userA)) /
-                1 ether; // amount of borrow tokens
-            liquidationLoops++;
         }
 
         // Liquidation spiral is done, convert balances to better showcase transfer
@@ -307,6 +315,9 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
         int whalePercentLost = (10_000 * whaleTotalGains) /
             int(whaleTotalInitialFunds);
 
+        uint borrowTokenPricePercentRaise = (borrowTokenNewPrice * 10_000) /
+            vars.borrowTokenStartPrice;
+
         interpretGains(
             vars,
             SpiralResultVariables(
@@ -317,7 +328,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 whaleTotalGains,
                 whalePercentLost,
                 borrowTokenNewPrice,
-                liquidationLoops
+                liquidationLoops,
+                borrowTokenPricePercentRaise
             )
         );
         exportTLSData(
@@ -331,7 +343,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 whaleTotalGains,
                 whalePercentLost,
                 borrowTokenNewPrice,
-                liquidationLoops
+                liquidationLoops,
+                borrowTokenPricePercentRaise
             )
         );
     }
@@ -413,7 +426,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
         uint24 targetToxicLiquidityThreshold
     ) public {
         vm.assume(
-            targetToxicLiquidityThreshold < 2e18 &&
+            targetToxicLiquidityThreshold < 3e18 &&
                 targetToxicLiquidityThreshold > 0
         );
 
