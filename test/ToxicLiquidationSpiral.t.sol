@@ -168,7 +168,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
 
         setUpTest(protocolVars);
 
-        // require targetTLTV to actually be toxic
+        // Require targetTLTV to actually be toxic
         require(
             vars.targetTLTV >=
                 (1 * 10000 * 1 ether * 1 ether) /
@@ -176,7 +176,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             "targetTLTV needs to be toxic"
         );
 
-        // set up whale reserves, buying both usdc and borrowed asset
+        // Set up whale reserves, buying both usdc and borrowed asset
         mintFundsAndCollateral(whale, usdc, cUSDC, vars.startUSDCAmountWhale);
         mintFundsAndCollateral(
             whale,
@@ -185,7 +185,8 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             vars.startBorrowAmountWhale
         );
 
-        // setup target account with initial LTV at .8 (non liquidatable level)
+        // Setup target account with initial LTV at .8 (a non liquidatable level
+        // under normal protocol operations). Can make this variable as well
         mintFundsAndCollateral(userA, usdc, cUSDC, vars.startUSDCAmountTarget);
         uint256 borrowAmount = ((vars.startUSDCAmountTarget) *
             protocolVars.uscdCollateralFactor *
@@ -197,18 +198,18 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             "inital LTV of target user is outside target range"
         );
 
-        // setup attacker account with initial funds
+        // Setup attacker account with initial funds
         giveUserFunds(userB, usdc, vars.startUSDCAmountAttacker);
         swapAssets(userB, usdc, borrowToken, vars.startUSDCAmountAttacker);
 
-        // figure out price of borrowed asset to hit targetTLTV for target account
-        // attacker would manipulate an oracle somehow to achieve (or price would just drop here -- sad!)
+        // Figure out price of borrowed asset to hit targetTLTV for target account
+        // Attacker would manipulate an oracle somehow to achieve (or price would just drop here -- sad!)
         uint256 borrowTokenNewPrice = (vars.targetTLTV *
             cUSDC.balanceOfUnderlying(userA) *
             vars.uscdCollateralFactor) / (borrowToken.balanceOf(userA) * 10000);
         oracle.setUnderlyingPrice(cBorrowedToken, borrowTokenNewPrice);
 
-        // see target TLTV is hit for target account with .001 wiggle room
+        // See target TLTV is hit for target account with .001 wiggle room
         require(
             getLTV(userA) < vars.targetTLTV + 10 &&
                 getLTV(userA) > vars.targetTLTV - 10,
@@ -218,8 +219,29 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
         // loop with maximum closing factor to liquidate
         uint256 closingAmount = (vars.closeFactor *
             cBorrowedToken.borrowBalanceCurrent(userA)) / 1 ether;
+
         uint256 liquidationLoops = 0;
+
         while (closingAmount > 0 && getLTV(userA) > 0) {
+            uint256 seizeTokens = (closingAmount *
+                protocolVars.liquidationIncentive *
+                borrowTokenNewPrice) /
+                (vars.usdcPrice * cUSDC.exchangeRateStored());
+            if (seizeTokens > cUSDC.balanceOf(userA)) {
+                // closingAmount is based on userA's borrow balance, but userA's
+                // collateral can be too low to cover the liquidation reward.
+                if (cUSDC.balanceOfUnderlying(userA) < 10) {
+                    // Too small to try to claim, quit liquidation
+                    break;
+                }
+                // This re-calculates the closingAmount to not revert on over-seizing
+                // collateral.
+                closingAmount =
+                    (cUSDC.balanceOf(userA) *
+                        vars.usdcPrice *
+                        cUSDC.exchangeRateStored()) /
+                    (protocolVars.liquidationIncentive * borrowTokenNewPrice);
+            }
             liquidate(
                 userB,
                 userA,
@@ -233,32 +255,22 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                     cBorrowedToken.borrowBalanceCurrent(userA)) /
                 1 ether; // amount of borrow tokens
             liquidationLoops++;
-            uint256 neededRemainingCollateral = (closingAmount *
-                borrowTokenNewPrice *
-                protocolVars.liquidationIncentive) / (vars.usdcPrice * 1 ether);
-            if (cUSDC.balanceOfUnderlying(userA) < neededRemainingCollateral) {
-                if (cUSDC.balanceOfUnderlying(userA) < 10) {
-                    // too small to try to claim
-                    break;
-                }
-                // set to actual remaining amount of claimable collateral
-                closingAmount =
-                    (vars.closeFactor * (cUSDC.balanceOfUnderlying(userA))) /
-                    (borrowTokenNewPrice);
-            }
         }
 
-        // replace actual price to reflect gains/losses more clearly on open market
+        // Liquidation spiral is done, convert balances to better showcase transfer
+        // of value.
+
+        // Replace actual price to reflect gains/losses more clearly on open market
         oracle.setUnderlyingPrice(cBorrowedToken, vars.borrowTokenStartPrice);
 
-        // have userB transfer his funds out of the protocol
+        // Have userB transfer his funds out of the protocol and swap for USDC
         removeCollateral(userB, cUSDC, cUSDC.balanceOfUnderlying(userB));
         swapAssets(userB, borrowToken, usdc, borrowToken.balanceOf(userB));
 
-        // have userA swap borrowed funds for usdc
+        // Have userA swap borrowed funds for USDC
         swapAssets(userA, borrowToken, usdc, borrowToken.balanceOf(userA));
 
-        // have whale withdraw all assets they can from pool
+        // Have whale withdraw all assets they can from pool
         removeCollateral(whale, cUSDC, cUSDC.balanceOfUnderlying(whale));
         // note: balance of whale's borrowed token is less than what is contained in the pool
         assert(
@@ -348,11 +360,62 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
      * analysis.
      * @param liquidationIncentive Variable to fuzz.
      */
-    function testFuzz_ExampleTLTV(uint liquidationIncentive) public {
+    function testFuzz_liquidationIncentive(uint liquidationIncentive) public {
         vm.assume(liquidationIncentive < 1e18 && liquidationIncentive > 0);
 
         uint targetToxicLiquidityThreshold = 13500;
         //uint liquidationIncentive = 1100000000000000000;
+        uint closeFactor = 500000000000000000;
+        uint usdcCollateralFactor = 855000000000000000;
+        uint borrowedTokenCollateralFactor = 550000000000000000;
+        uint usdcStartPrice = 1 ether;
+        uint borredTokenStartPrice = 1 ether;
+        uint startingUSDCAmountTarget = 10_000;
+        uint startingUSDCAmountAttacker = 10_000;
+        uint startingUSDCAmountWhale = 20_000;
+        uint startingBorredTokenAmountWhale = 20_000;
+
+        // TLTV logic will not work if this is not true
+        vm.assume(
+            targetToxicLiquidityThreshold >=
+                (1 * 10000 * 1 ether * 1 ether) /
+                    (liquidationIncentive * usdcCollateralFactor)
+        );
+
+        // run actual test
+        findToxicLTVExternalLosses(
+            SpiralConfigurationVariables(
+                targetToxicLiquidityThreshold, // Target Toxic Liquidity Threshold
+                liquidationIncentive, // Liquidation Incentive
+                closeFactor, // Close Factor
+                usdcCollateralFactor, // USDC Collateral Factor
+                borrowedTokenCollateralFactor, // Borrow Collateral Factor
+                usdcStartPrice, // USDC Start Price
+                borredTokenStartPrice, // Borrow Start Price
+                startingUSDCAmountTarget, // Starting USDC Amount Target
+                startingUSDCAmountAttacker, // Starting USDC Amount Attacker
+                startingUSDCAmountWhale, // Starting USDC Amount Whale
+                startingBorredTokenAmountWhale // Starting Borrow Amount Whale
+            )
+        );
+    }
+
+    /**
+     * @notice Example test showing how to utilize fuzzing. The results of the
+     * fuzz runs will be exported into the 'dataBank.csv' file for post-run
+     * analysis.
+     * @param targetToxicLiquidityThreshold Variable to fuzz.
+     */
+    function testFuzz_targetToxicLTV(
+        uint24 targetToxicLiquidityThreshold
+    ) public {
+        vm.assume(
+            targetToxicLiquidityThreshold < 1e18 &&
+                targetToxicLiquidityThreshold > 0
+        );
+
+        //uint targetToxicLiquidityThreshold = 13500;
+        uint liquidationIncentive = 1100000000000000000;
         uint closeFactor = 500000000000000000;
         uint usdcCollateralFactor = 855000000000000000;
         uint borrowedTokenCollateralFactor = 550000000000000000;
