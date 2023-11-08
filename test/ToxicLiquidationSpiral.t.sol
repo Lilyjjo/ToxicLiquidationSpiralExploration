@@ -228,7 +228,11 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             // loop with maximum closing factor to liquidate
             uint256 closingAmount = (vars.closeFactor *
                 cBorrowedToken.borrowBalanceCurrent(userA)) / 1 ether;
-            while (closingAmount > 0 && getLTV(userA) > 0) {
+            while (
+                closingAmount > 0 &&
+                getLTV(userA) > 0 &&
+                borrowToken.balanceOf(userB) > 0
+            ) {
                 uint256 seizeTokens = (closingAmount *
                     protocolVars.liquidationIncentive *
                     borrowTokenNewPrice) /
@@ -252,6 +256,10 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                         break;
                     }
                 }
+                if (closingAmount > borrowToken.balanceOf(userB)) {
+                    closingAmount = borrowToken.balanceOf(userB);
+                }
+
                 liquidate(
                     userB,
                     userA,
@@ -324,6 +332,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
                 targetGains,
                 attackerGains,
                 whaleUSDCGains,
+                targetGains + attackerGains,
                 whaleBorrowGains,
                 whaleTotalGains,
                 whalePercentLost,
@@ -338,6 +347,7 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             SpiralResultVariables(
                 targetGains,
                 attackerGains,
+                targetGains + attackerGains,
                 whaleUSDCGains,
                 whaleBorrowGains,
                 whaleTotalGains,
@@ -466,4 +476,50 @@ contract ToxicLiquidityExploration is CompoundWrapper, ExportDataUtil {
             )
         );
     } // command: forge test -vv -m testFuzz_target
+
+    /**
+     * @notice Example test showing how to utilize fuzzing. The results of the
+     * fuzz runs will be exported into the 'dataBank.csv' file for post-run
+     * analysis.
+     */
+    function testFuzz_startingNonWhaleAmounts(
+        uint16 startingUSDCAmountAttacker,
+        uint16 startingUSDCAmountTarget
+    ) public {
+        vm.assume(
+            startingUSDCAmountAttacker < 29_000 &&
+                startingUSDCAmountAttacker > 100 &&
+                startingUSDCAmountTarget < 29_000 &&
+                startingUSDCAmountTarget > 100
+        );
+
+        uint targetToxicLiquidityThreshold = 13500;
+        uint liquidationIncentive = 1100000000000000000;
+        uint closeFactor = 500000000000000000;
+        uint usdcCollateralFactor = 855000000000000000;
+        uint borrowedTokenCollateralFactor = 550000000000000000;
+        uint usdcStartPrice = 1 ether;
+        uint borredTokenStartPrice = 1 ether;
+        //uint startingUSDCAmountTarget = 10_000;
+        //uint startingUSDCAmountAttacker = 10_000;
+        uint startingUSDCAmountWhale = 20_000;
+        uint startingBorredTokenAmountWhale = 20_000;
+
+        // run actual test
+        findToxicLTVExternalLosses(
+            SpiralConfigurationVariables(
+                targetToxicLiquidityThreshold, // Target Toxic Liquidity Threshold
+                liquidationIncentive, // Liquidation Incentive
+                closeFactor, // Close Factor
+                usdcCollateralFactor, // USDC Collateral Factor
+                borrowedTokenCollateralFactor, // Borrow Collateral Factor
+                usdcStartPrice, // USDC Start Price
+                borredTokenStartPrice, // Borrow Start Price
+                startingUSDCAmountTarget, // Starting USDC Amount Target
+                startingUSDCAmountAttacker, // Starting USDC Amount Attacker
+                startingUSDCAmountWhale, // Starting USDC Amount Whale
+                startingBorredTokenAmountWhale // Starting Borrow Amount Whale
+            )
+        );
+    }
 }

@@ -35,6 +35,7 @@ contract ExportDataUtil is Test {
         data = concatUint256(data, configVars.startBorrowAmountWhale, true);
         data = concatInt256(data, resultVars.gainsTarget, true);
         data = concatInt256(data, resultVars.gainsAttacker, true);
+        data = concatInt256(data, resultVars.gainsNonWhale, true);
         data = concatInt256(data, resultVars.gainsWhaleUSDC, true);
         data = concatInt256(data, resultVars.gainsWhaleBorrow, true);
         data = concatInt256(data, resultVars.gainsWhaleTotal, true);

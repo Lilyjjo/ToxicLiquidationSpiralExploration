@@ -18,6 +18,7 @@ struct SpiralConfigurationVariables {
 struct SpiralResultVariables {
     int gainsTarget;
     int gainsAttacker;
+    int gainsNonWhale;
     int gainsWhaleUSDC;
     int gainsWhaleBorrow;
     int gainsWhaleTotal;
