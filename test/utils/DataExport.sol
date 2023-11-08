@@ -107,6 +107,15 @@ contract ExportDataUtil is Test {
     }
 
     /**
+     * @notice Creates file with data header if not already created
+     */
+    function checkFile() internal {
+        string[] memory inputs = new string[](1);
+        inputs[0] = "./create_file_script.sh";
+        vm.ffi(inputs);
+    }
+
+    /**
      * @notice Exports a row of Toxic Liquidity Spiral data to a file
      * @param fileName The name of the file to append the data to
      * @param configVars The configuration variables TLS test was run with
@@ -117,6 +126,7 @@ contract ExportDataUtil is Test {
         SpiralConfigurationVariables memory configVars,
         SpiralResultVariables memory resultVars
     ) public {
+        checkFile();
         string memory data = createTLSDataString(configVars, resultVars);
         exportString(fileName, data);
     }
